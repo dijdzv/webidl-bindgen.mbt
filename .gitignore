@@ -1,0 +1,11 @@
+# MoonBit
+target/
+.mooncakes/
+
+# Node.js
+node_modules/
+bun.lock
+package-lock.json
+
+# OS
+.DS_Store
