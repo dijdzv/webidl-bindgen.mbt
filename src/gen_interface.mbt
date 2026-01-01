@@ -612,6 +612,9 @@ pub fn gen_interface_binding(
 ) -> String {
   let result = StringBuilder::new()
 
+  // セグメント分割マーカー（大きなファイルでの65535行制限回避）
+  result.write_string("///|\n")
+
   // 型定義
   result.write_string("/// ")
   result.write_string(iface.name)

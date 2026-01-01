@@ -68,6 +68,9 @@ fn get_first_char_types(s : String) -> Char {
 pub fn gen_dictionary(dict : DictionaryDef) -> String {
   let mut result = ""
 
+  // セグメント分割マーカー（大きなファイルでの65535行制限回避）
+  result = result + "///|\n"
+
   // ドキュメントコメント
   result = result + "/// "
   result = result + dict.name
@@ -172,6 +175,9 @@ pub fn gen_dictionary(dict : DictionaryDef) -> String {
 /// Enum から MoonBit enum を生成
 pub fn gen_enum(enum_def : EnumDef) -> String {
   let mut result = ""
+
+  // セグメント分割マーカー
+  result = result + "///|\n"
 
   // ドキュメントコメント
   result = result + "/// "
@@ -374,6 +380,9 @@ fn field_name_to_moonbit(name : String) -> String {
 /// Typedef から MoonBit type alias を生成
 pub fn gen_typedef(typedef_def : TypedefDef) -> String {
   let mut result = ""
+
+  // セグメント分割マーカー
+  result = result + "///|\n"
 
   // ドキュメントコメント
   result = result + "/// "
