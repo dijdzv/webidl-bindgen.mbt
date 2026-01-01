@@ -1162,7 +1162,18 @@ fn collect_inherited_interface_members(
       // 祖先のメンバー + 親自身のメンバー（重複チェック付き）
       let result : Array[InterfaceMember] = []
       for mem in grandparent_members {
-        result.push(mem)
+        // 祖父母からの継承で重複がある場合はスキップ
+        let mem_name = get_interface_member_name(mem)
+        let mut is_duplicate = false
+        for existing in result {
+          if get_interface_member_name(existing) == mem_name {
+            is_duplicate = true
+            break
+          }
+        }
+        if not(is_duplicate) {
+          result.push(mem)
+        }
       }
       // 親のメンバーを追加（祖父と重複する場合は親を優先）
       for mem in iface.members {
@@ -1281,7 +1292,17 @@ fn collect_inherited_dictionary_members(
       // 祖先のメンバー + 親自身のメンバー（重複チェック付き）
       let result : Array[DictionaryMember] = []
       for mem in grandparent_members {
-        result.push(mem)
+        // 祖父母からの継承で重複がある場合はスキップ
+        let mut is_duplicate = false
+        for existing in result {
+          if existing.name == mem.name {
+            is_duplicate = true
+            break
+          }
+        }
+        if not(is_duplicate) {
+          result.push(mem)
+        }
       }
       // 親のメンバーを追加（祖父と重複する場合は親を優先）
       for mem in dict.members {
