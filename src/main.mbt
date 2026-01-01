@@ -357,7 +357,7 @@ async fn main {
     let output_code = format_output(source_name, all_definitions)
 
     // Write output file
-    let basename = if args.all { "web-sys" } else { "bindings" }
+    let basename = if args.all { "websys" } else { "bindings" }
     let output_file = path_join(args.output, basename + ".js.mbt")
     println("Writing: " + output_file)
     write_file_sync(output_file, output_code)
