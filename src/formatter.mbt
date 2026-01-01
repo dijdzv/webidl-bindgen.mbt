@@ -736,11 +736,11 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
 }
 
 ///|
-/// Interface メンバーをマージ（重複検出・警告付き）
+/// Interface メンバーをマージ（重複検出付き）
 fn merge_interface_members(
   existing : Array[InterfaceMember],
   new_members : Array[InterfaceMember],
-  target_name : String,
+  _target_name : String,
 ) -> Array[InterfaceMember] {
   let result : Array[InterfaceMember] = []
 
@@ -755,14 +755,7 @@ fn merge_interface_members(
     let mut is_duplicate = false
     for existing_mem in existing {
       if get_member_name(existing_mem) == new_name && new_name != "" {
-        // Duplicate detected - warn and skip
-        println(
-          "Warning: Duplicate member '" +
-          new_name +
-          "' in partial interface '" +
-          target_name +
-          "' - skipping",
-        )
+        // Duplicate detected - skip silently (expected during inheritance)
         is_duplicate = true
         break
       }
