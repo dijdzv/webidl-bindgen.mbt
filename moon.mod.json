@@ -1,9 +1,8 @@
 {
-  "name": "dijdzv/webidl-bindgen",
-  "version": "0.1.0",
-  "preferred-target": "js",
-  "deps": {
-    "moonbitlang/async": "0.15.0"
-  },
-  "source": "src"
+    "name": "dijdzv/webidl-bindgen",
+    "preferred-target": "js",
+    "deps": {
+        "moonbitlang/async": "0.15.0"
+    },
+    "source": "src"
 }

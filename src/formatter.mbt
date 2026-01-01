@@ -859,7 +859,7 @@ pub fn gen_shared_types_with_externals(
 pub fn format_spec_output(
   spec_name : String,
   definitions : Array[Definition],
-  global_enum_map : Array[(String, Array[String])]
+  global_enum_map : Array[(String, Array[String])],
 ) -> String {
   let result = StringBuilder::new()
 

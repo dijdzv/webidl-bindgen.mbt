@@ -102,7 +102,7 @@ pub fn to_snake_case(name : String) -> String {
 /// enum マップから値リストを取得
 fn get_enum_values(
   enum_map : Array[(String, Array[String])],
-  name : String
+  name : String,
 ) -> Array[String]? {
   for pair in enum_map {
     if pair.0 == name {
@@ -117,7 +117,7 @@ fn get_enum_values(
 pub fn gen_operation(
   interface_name : String,
   op : OperationDef,
-  enum_map : Array[(String, Array[String])]
+  enum_map : Array[(String, Array[String])],
 ) -> String {
   // 名前なしの特殊メソッド（getter/setter）はスキップ
   if is_empty_op_name(op.name) {
@@ -202,7 +202,6 @@ pub fn gen_operation(
       _ => js_call_args.write_string(arg_name)
     }
   }
-
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
   result.write_string(interface_name)
@@ -278,7 +277,7 @@ pub fn gen_attribute_setter(
 /// Interface 全体から binding コードを生成
 pub fn gen_interface_binding(
   iface : InterfaceDef,
-  enum_map : Array[(String, Array[String])]
+  enum_map : Array[(String, Array[String])],
 ) -> String {
   let result = StringBuilder::new()
 

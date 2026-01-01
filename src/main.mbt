@@ -308,7 +308,11 @@ async fn main {
           // Only write file if there are owned definitions
           if owned_defs.length() > 0 {
             let merged = merge_definitions(owned_defs)
-            let code = format_spec_output(result.spec_name, merged, global_enum_map)
+            let code = format_spec_output(
+              result.spec_name,
+              merged,
+              global_enum_map,
+            )
             let output_file = path_join(
               args.output,
               result.spec_name + ".js.mbt",

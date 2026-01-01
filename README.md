@@ -1,5 +1,7 @@
 # webidl-bindgen.mbt
 
+[![npm version](https://img.shields.io/npm/v/webidl-bindgen.mbt.svg)](https://www.npmjs.com/package/webidl-bindgen.mbt)
+
 WebIDL to MoonBit binding generator.
 
 ## Features
@@ -86,6 +88,15 @@ pub extern "js" fn HTMLElement::set_inner_text(self : HTMLElement, value : Strin
 
 - [webidl2](https://github.com/AliasT/webidl2.js) - WebIDL parser
 - [@webref/idl](https://github.com/nicolo-ribaudo/webref) - W3C spec IDL collection
+
+## Known Limitations
+
+Currently not supported (planned):
+
+- Constructor generation (`new Blob()` etc.)
+- Inheritance (parent interface methods)
+- Static methods (`URL.createObjectURL()`)
+- Special getter/setter/deleter (indexed access)
 
 ## License
 
