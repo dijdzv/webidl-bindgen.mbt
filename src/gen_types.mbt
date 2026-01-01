@@ -338,7 +338,8 @@ pub fn escape_reserved(name : String) -> String {
     | "alias"
     | "ref"
     | "where"
-    | "method" => name + "_"
+    | "method"
+    | "use" => name + "_"
     _ => name
   }
 }
