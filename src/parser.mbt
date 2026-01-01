@@ -130,7 +130,11 @@ pub extern "js" fn get_string_value(arr : JsArray, index : Int) -> String =
 ///|
 /// オブジェクトの inheritance プロパティを取得
 pub extern "js" fn get_inheritance(obj : JsValue) -> String =
-  #| (obj) => (obj.inheritance && obj.inheritance.name) || ''
+  #| (obj) => {
+  #|   if (!obj.inheritance) return '';
+  #|   // inheritance can be a string or an object with .name
+  #|   return typeof obj.inheritance === 'string' ? obj.inheritance : (obj.inheritance.name || '');
+  #| }
 
 ///|
 /// default 値を取得

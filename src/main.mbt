@@ -296,12 +296,16 @@ async fn main {
       let mut success_count = 0
       let mut total_defs = 0
 
+      // Collect all definitions from all specs (for cross-spec partial interface merging)
+      let all_definitions = merge_all_results(results)
+
       // Output each spec to its own file
       for result in results {
         if result.success && result.definitions.length() > 0 {
-          // Filter to only include definitions owned by this spec
+          // Filter ALL definitions (from all specs) to only include those owned by this spec
+          // This ensures partial interfaces from other specs are included
           let owned_defs = filter_definitions_by_owner(
-            result.definitions,
+            all_definitions,
             result.spec_name,
             ownership,
           )
