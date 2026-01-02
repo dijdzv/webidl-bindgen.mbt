@@ -39,7 +39,14 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
         name
       }
     }
-    Sequence(_) => "JsValue" // Array系はJsValue
+    Sequence(inner) => {
+      let inner_type = idl_type_to_moonbit(inner)
+      "Array[" + inner_type + "]"
+    }
+    Promise(inner) => {
+      let inner_type = idl_type_to_moonbit(inner)
+      "Promise[" + inner_type + "]"
+    }
     Union(_) => "JsValue" // Union型はJsValue
     Any => "JsValue"
   }
@@ -452,6 +459,174 @@ pub fn gen_operation(
 }
 
 ///|
+/// optional引数の最初のインデックスを取得（なければ-1）
+fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
+  for i = 0; i < args.length(); i = i + 1 {
+    if args[i].optional {
+      return i
+    }
+  }
+  -1
+}
+
+///|
+/// 指定された引数数でOperation を生成
+/// fn_suffix: 関数名に付けるサフィックス（空文字列の場合はなし）
+pub fn gen_operation_with_arg_count(
+  interface_name : String,
+  op : OperationDef,
+  enum_map : Array[(String, Array[String])],
+  arg_count : Int,
+  fn_suffix : String,
+) -> String {
+  if is_empty_op_name(op.name) {
+    return ""
+  }
+  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let fn_name = if fn_suffix == "" {
+    base_fn_name
+  } else {
+    base_fn_name + "_" + fn_suffix
+  }
+  let return_type = idl_type_to_moonbit(op.return_type)
+
+  // 引数リスト生成（arg_count個まで）
+  let args = StringBuilder::new()
+  args.write_string("self : ")
+  args.write_string(interface_name)
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = op.arguments[i]
+    args.write_string(", ")
+    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(" : ")
+    args.write_string(idl_type_to_moonbit(arg.idl_type))
+  }
+
+  // JS呼び出しコード生成
+  let js_args = StringBuilder::new()
+  js_args.write_string("self")
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = op.arguments[i]
+    js_args.write_string(", ")
+    js_args.write_string(escape_reserved(to_snake_case(arg.name)))
+  }
+
+  // JS 呼び出し引数（enum は配列ルックアップで文字列に変換）
+  let js_call_args = StringBuilder::new()
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = op.arguments[i]
+    if i > 0 {
+      js_call_args.write_string(", ")
+    }
+    let arg_name = escape_reserved(to_snake_case(arg.name))
+    match arg.idl_type {
+      Named(type_name) =>
+        match get_enum_values(enum_map, type_name) {
+          Some(values) => {
+            js_call_args.write_string("[")
+            for j = 0; j < values.length(); j = j + 1 {
+              if j > 0 {
+                js_call_args.write_string(", ")
+              }
+              js_call_args.write_string("'")
+              js_call_args.write_string(values[j])
+              js_call_args.write_string("'")
+            }
+            js_call_args.write_string("][")
+            js_call_args.write_string(arg_name)
+            js_call_args.write_string("]")
+          }
+          None => js_call_args.write_string(arg_name)
+        }
+      Nullable(Named(type_name)) =>
+        match get_enum_values(enum_map, type_name) {
+          Some(values) => {
+            js_call_args.write_string("(")
+            js_call_args.write_string(arg_name)
+            js_call_args.write_string(" != null ? [")
+            for j = 0; j < values.length(); j = j + 1 {
+              if j > 0 {
+                js_call_args.write_string(", ")
+              }
+              js_call_args.write_string("'")
+              js_call_args.write_string(values[j])
+              js_call_args.write_string("'")
+            }
+            js_call_args.write_string("][")
+            js_call_args.write_string(arg_name)
+            js_call_args.write_string("] : null)")
+          }
+          None => js_call_args.write_string(arg_name)
+        }
+      _ => js_call_args.write_string(arg_name)
+    }
+  }
+  let result = StringBuilder::new()
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(interface_name)
+  result.write_string("::")
+  result.write_string(fn_name)
+  result.write_string("(")
+  result.write_string(args.to_string())
+  result.write_string(") -> ")
+  result.write_string(return_type)
+  result.write_string(" =\n")
+  result.write_string("  #| (")
+  result.write_string(js_args.to_string())
+  result.write_string(") => self.")
+  result.write_string(op.name)
+  result.write_string("(")
+  result.write_string(js_call_args.to_string())
+  result.write_string(")\n")
+  result.to_string()
+}
+
+///|
+/// Operation のすべてのバリアントを生成（optional引数対応）
+/// 戻り値: (生成されたコード, 登録すべき関数名のリスト)
+pub fn gen_operation_variants(
+  interface_name : String,
+  op : OperationDef,
+  enum_map : Array[(String, Array[String])],
+) -> (String, Array[String]) {
+  let result = StringBuilder::new()
+  let fn_names : Array[String] = []
+  if is_empty_op_name(op.name) {
+    return (result.to_string(), fn_names)
+  }
+  let first_optional = find_first_optional_arg_index(op.arguments)
+  let total_args = op.arguments.length()
+
+  // optional引数がない場合は通常生成
+  if first_optional < 0 {
+    let code = gen_operation(interface_name, op, enum_map)
+    result.write_string(code)
+    fn_names.push(escape_reserved(to_snake_case(op.name)))
+    return (result.to_string(), fn_names)
+  }
+
+  // 必須引数のみのベース版を生成
+  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let base_code = gen_operation_with_arg_count(
+    interface_name, op, enum_map, first_optional, "",
+  )
+  result.write_string(base_code)
+  result.write_string("\n")
+  fn_names.push(base_fn_name)
+
+  // 全引数版を生成（サフィックス付き）
+  // 最後のoptional引数の名前をサフィックスにする
+  let last_optional_arg = op.arguments[total_args - 1]
+  let suffix = "with_" + to_snake_case(last_optional_arg.name)
+  let full_code = gen_operation_with_arg_count(
+    interface_name, op, enum_map, total_args, suffix,
+  )
+  result.write_string(full_code)
+  fn_names.push(base_fn_name + "_" + suffix)
+  (result.to_string(), fn_names)
+}
+
+///|
 /// Attribute getter を生成
 pub fn gen_attribute_getter(
   interface_name : String,
@@ -500,6 +675,115 @@ pub fn gen_attribute_setter(
   result.write_string(attr.name)
   result.write_string(" = value }\n")
   result.to_string()
+}
+
+///|
+/// Const 定数から pub let 宣言を生成
+/// 例: const GLenum ARRAY_BUFFER = 0x8892 → pub let webgl_rendering_context_array_buffer : Int = 0x8892
+pub fn gen_const(interface_name : String, const_def : ConstDef) -> String {
+  let result = StringBuilder::new()
+
+  // 定数名を生成（インターフェース名_定数名）
+  // 例: WebGLRenderingContext + ARRAY_BUFFER → webgl_rendering_context_array_buffer
+  let interface_prefix = to_snake_case(interface_name)
+  let const_suffix = const_name_to_snake_case(const_def.name)
+  let const_name = interface_prefix + "_" + const_suffix
+
+  // 型を MoonBit 型に変換（GLenum などは Int にマップ）
+  let moonbit_type = const_type_to_moonbit(const_def.idl_type)
+
+  // 値の変換（16進数はそのまま、文字列は引用符付き）
+  let value = format_const_value(const_def.value, moonbit_type)
+
+  // コメントで元のインターフェース名と定数名を記載
+  result.write_string("// ")
+  result.write_string(interface_name)
+  result.write_string(".")
+  result.write_string(const_def.name)
+  result.write_string("\n")
+
+  // pub let 宣言を生成
+  result.write_string("pub let ")
+  result.write_string(const_name)
+  result.write_string(" : ")
+  result.write_string(moonbit_type)
+  result.write_string(" = ")
+  result.write_string(value)
+  result.write_string("\n")
+  result.to_string()
+}
+
+///|
+/// 定数名を snake_case に変換（UPPER_CASE → lower_case）
+/// WebGL の定数は既にアンダースコア区切りなので、単純に小文字化する
+fn const_name_to_snake_case(name : String) -> String {
+  let result = StringBuilder::new()
+  for c in name {
+    if c >= 'A' && c <= 'Z' {
+      // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
+      let lower_code = c.to_int() + 32
+      let lower = lower_code.unsafe_to_char()
+      result.write_char(lower)
+    } else {
+      result.write_char(c)
+    }
+  }
+  result.to_string()
+}
+
+///|
+/// Const 用の型変換（GLenum, GLint などは全て Int）
+fn const_type_to_moonbit(idl_type : IdlType) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        "boolean" => "Bool"
+        "byte"
+        | "octet"
+        | "short"
+        | "unsigned short"
+        | "long"
+        | "unsigned long" => "Int"
+        "long long" | "unsigned long long" => "Int64"
+        "float" | "unrestricted float" | "double" | "unrestricted double" =>
+          "Double"
+        _ => "Int" // 未知のプリミティブは Int
+      }
+    String => "String"
+    Named(_) => "Int" // GLenum, GLint など WebGL 型は全て Int
+    _ => "Int"
+  }
+}
+
+///|
+/// 定数値のフォーマット
+fn format_const_value(value : String, moonbit_type : String) -> String {
+  // 空文字列チェック
+  if is_empty_string(value) {
+    return "0"
+  }
+
+  // 文字列型の場合は引用符を追加
+  if moonbit_type == "String" {
+    let result = StringBuilder::new()
+    result.write_string("\"")
+    result.write_string(value)
+    result.write_string("\"")
+    return result.to_string()
+  }
+
+  // Bool型の場合
+  if moonbit_type == "Bool" {
+    if value == "true" || value == "1" {
+      return "true"
+    } else {
+      return "false"
+    }
+  }
+
+  // 16進数の場合、MoonBit形式に変換（0x → 0x）
+  // JSの16進数はそのままMoonBitでも使える
+  value
 }
 
 ///|
@@ -633,6 +917,7 @@ pub fn gen_interface_binding(
 
   // Track generated method names to avoid duplicates
   let generated_methods : Array[String] = []
+  let generated_constants : Array[String] = []
   let mut has_constructor = false
 
   // メンバー生成
@@ -697,12 +982,19 @@ pub fn gen_interface_binding(
             }
           }
           _ => {
-            // 通常の operation
-            let fn_name = to_snake_case(op.name)
-            // Skip if already generated (handles overloads)
-            if not(array_contains(generated_methods, fn_name)) {
-              generated_methods.push(fn_name)
-              result.write_string(gen_operation(iface.name, op, enum_map))
+            // 通常の operation（optional引数対応）
+            let base_fn_name = to_snake_case(op.name)
+            // Skip if base name already generated (handles overloads)
+            if not(array_contains(generated_methods, base_fn_name)) {
+              let (code, fn_names) = gen_operation_variants(
+                iface.name,
+                op,
+                enum_map,
+              )
+              for name in fn_names {
+                generated_methods.push(name)
+              }
+              result.write_string(code)
               result.write_string("\n")
             }
           }
@@ -733,7 +1025,176 @@ pub fn gen_interface_binding(
           result.write_string(gen_constructor(iface.name, ctor, enum_map))
           result.write_string("\n")
         }
-      _ => () // Const は後で対応
+      Const(const_def) => {
+        let interface_prefix = to_snake_case(iface.name)
+        let const_suffix = const_name_to_snake_case(const_def.name)
+        let const_name = interface_prefix + "_" + const_suffix
+        if not(array_contains(generated_constants, const_name)) {
+          generated_constants.push(const_name)
+          result.write_string(gen_const(iface.name, const_def))
+          result.write_string("\n")
+        }
+      }
+      Maplike(maplike) => {
+        // maplike: get, has, and if not readonly: set, delete, clear
+        let code = gen_maplike_methods(iface.name, maplike, generated_methods)
+        result.write_string(code)
+      }
+      Setlike(setlike) => {
+        // setlike: has, and if not readonly: add, delete, clear
+        let code = gen_setlike_methods(iface.name, setlike, generated_methods)
+        result.write_string(code)
+      }
+    }
+  }
+  result.to_string()
+}
+
+///|
+/// Maplike のメソッドを生成
+fn gen_maplike_methods(
+  interface_name : String,
+  maplike : MaplikeDef,
+  generated_methods : Array[String],
+) -> String {
+  let result = StringBuilder::new()
+  let key_type = idl_type_to_moonbit(maplike.key_type)
+  let value_type = idl_type_to_moonbit(maplike.value_type)
+
+  // get(key) -> value?
+  if not(array_contains(generated_methods, "get")) {
+    generated_methods.push("get")
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(interface_name)
+    result.write_string("::get(self : ")
+    result.write_string(interface_name)
+    result.write_string(", key : ")
+    result.write_string(key_type)
+    result.write_string(") -> ")
+    result.write_string(value_type)
+    result.write_string("? =\n")
+    result.write_string("  #| (self, key) => self.get(key)\n\n")
+  }
+
+  // has(key) -> Bool
+  if not(array_contains(generated_methods, "has")) {
+    generated_methods.push("has")
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(interface_name)
+    result.write_string("::has(self : ")
+    result.write_string(interface_name)
+    result.write_string(", key : ")
+    result.write_string(key_type)
+    result.write_string(") -> Bool =\n")
+    result.write_string("  #| (self, key) => self.has(key)\n\n")
+  }
+
+  // If not readonly, add set/delete/clear
+  if not(maplike.is_readonly) {
+    // set(key, value) -> Unit
+    if not(array_contains(generated_methods, "set")) {
+      generated_methods.push("set")
+      result.write_string("pub extern \"js\" fn ")
+      result.write_string(interface_name)
+      result.write_string("::set(self : ")
+      result.write_string(interface_name)
+      result.write_string(", key : ")
+      result.write_string(key_type)
+      result.write_string(", value : ")
+      result.write_string(value_type)
+      result.write_string(") -> Unit =\n")
+      result.write_string(
+        "  #| (self, key, value) => { self.set(key, value) }\n\n",
+      )
+    }
+
+    // delete(key) -> Bool
+    if not(array_contains(generated_methods, "delete")) {
+      generated_methods.push("delete")
+      result.write_string("pub extern \"js\" fn ")
+      result.write_string(interface_name)
+      result.write_string("::delete(self : ")
+      result.write_string(interface_name)
+      result.write_string(", key : ")
+      result.write_string(key_type)
+      result.write_string(") -> Bool =\n")
+      result.write_string("  #| (self, key) => self.delete(key)\n\n")
+    }
+
+    // clear() -> Unit
+    if not(array_contains(generated_methods, "clear")) {
+      generated_methods.push("clear")
+      result.write_string("pub extern \"js\" fn ")
+      result.write_string(interface_name)
+      result.write_string("::clear(self : ")
+      result.write_string(interface_name)
+      result.write_string(") -> Unit =\n")
+      result.write_string("  #| (self) => { self.clear() }\n\n")
+    }
+  }
+  result.to_string()
+}
+
+///|
+/// Setlike のメソッドを生成
+fn gen_setlike_methods(
+  interface_name : String,
+  setlike : SetlikeDef,
+  generated_methods : Array[String],
+) -> String {
+  let result = StringBuilder::new()
+  let value_type = idl_type_to_moonbit(setlike.value_type)
+
+  // has(value) -> Bool
+  if not(array_contains(generated_methods, "has")) {
+    generated_methods.push("has")
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(interface_name)
+    result.write_string("::has(self : ")
+    result.write_string(interface_name)
+    result.write_string(", value : ")
+    result.write_string(value_type)
+    result.write_string(") -> Bool =\n")
+    result.write_string("  #| (self, value) => self.has(value)\n\n")
+  }
+
+  // If not readonly, add add/delete/clear
+  if not(setlike.is_readonly) {
+    // add(value) -> Unit
+    if not(array_contains(generated_methods, "add")) {
+      generated_methods.push("add")
+      result.write_string("pub extern \"js\" fn ")
+      result.write_string(interface_name)
+      result.write_string("::add(self : ")
+      result.write_string(interface_name)
+      result.write_string(", value : ")
+      result.write_string(value_type)
+      result.write_string(") -> Unit =\n")
+      result.write_string("  #| (self, value) => { self.add(value) }\n\n")
+    }
+
+    // delete(value) -> Bool
+    if not(array_contains(generated_methods, "delete")) {
+      generated_methods.push("delete")
+      result.write_string("pub extern \"js\" fn ")
+      result.write_string(interface_name)
+      result.write_string("::delete(self : ")
+      result.write_string(interface_name)
+      result.write_string(", value : ")
+      result.write_string(value_type)
+      result.write_string(") -> Bool =\n")
+      result.write_string("  #| (self, value) => self.delete(value)\n\n")
+    }
+
+    // clear() -> Unit
+    if not(array_contains(generated_methods, "clear")) {
+      generated_methods.push("clear")
+      result.write_string("pub extern \"js\" fn ")
+      result.write_string(interface_name)
+      result.write_string("::clear(self : ")
+      result.write_string(interface_name)
+      result.write_string(") -> Unit =\n")
+      result.write_string("  #| (self) => { self.clear() }\n\n")
     }
   }
   result.to_string()

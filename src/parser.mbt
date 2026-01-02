@@ -95,6 +95,16 @@ pub extern "js" fn get_sequence_inner_type(idl_type : JsValue) -> JsValue =
   #| (t) => (t && t.idlType && t.idlType[0]) || null
 
 ///|
+/// idlType が Promise 型かチェック
+pub extern "js" fn is_promise_type(idl_type : JsValue) -> Bool =
+  #| (t) => t && t.generic === 'Promise'
+
+///|
+/// Promise型の内部型を取得
+pub extern "js" fn get_promise_inner_type(idl_type : JsValue) -> JsValue =
+  #| (t) => (t && t.idlType && t.idlType[0]) || null
+
+///|
 /// idlType が nullable かチェック
 pub extern "js" fn is_nullable_type(idl_type : JsValue) -> Bool =
   #| (t) => t && t.nullable === true
@@ -103,6 +113,16 @@ pub extern "js" fn is_nullable_type(idl_type : JsValue) -> Bool =
 /// オブジェクトの readonly プロパティを取得
 pub extern "js" fn is_readonly(obj : JsValue) -> Bool =
   #| (obj) => obj.readonly === true
+
+///|
+/// maplike/setlike の idlType 配列を取得
+pub extern "js" fn get_maplike_types(obj : JsValue) -> JsArray =
+  #| (obj) => obj.idlType || []
+
+///|
+/// maplike/setlike の idlType 配列の要素を取得
+pub extern "js" fn get_maplike_type_at(types : JsArray, index : Int) -> JsValue =
+  #| (types, index) => types[index] || null
 
 ///|
 /// オブジェクトの optional プロパティを取得
@@ -215,6 +235,12 @@ fn convert_idl_type(js_type : JsValue) -> IdlType {
     let inner_type = convert_idl_type(inner_js_type)
     return Sequence(inner_type)
   }
+  if is_promise_type(js_type) {
+    // Extract Promise inner type
+    let inner_js_type = get_promise_inner_type(js_type)
+    let inner_type = convert_idl_type(inner_js_type)
+    return Promise(inner_type)
+  }
   if is_nullable_type(js_type) {
     // For nullable, get the inner type properly
     let type_name = get_type_name(js_type)
@@ -324,6 +350,26 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
       let ctor : ConstructorDef = { arguments: args }
       Constructor(ctor)
     }
+    "maplike" => {
+      let types = get_maplike_types(js_mem)
+      let key_type = convert_idl_type(get_maplike_type_at(types, 0))
+      let value_type = convert_idl_type(get_maplike_type_at(types, 1))
+      let maplike : MaplikeDef = {
+        key_type,
+        value_type,
+        is_readonly: is_readonly(js_mem),
+      }
+      Maplike(maplike)
+    }
+    "setlike" => {
+      let types = get_maplike_types(js_mem)
+      let value_type = convert_idl_type(get_maplike_type_at(types, 0))
+      let setlike : SetlikeDef = {
+        value_type,
+        is_readonly: is_readonly(js_mem),
+      }
+      Setlike(setlike)
+    }
     _ => {
       // Unknown member type, treat as operation with no-op
       let op : OperationDef = {
@@ -414,14 +460,78 @@ pub fn convert_to_definitions(result : JsValue) -> Array[Definition] {
         definitions.push(InterfaceMixin(mixin_def))
       }
       "callback interface" => {
-        // Callback interface は opaque 型として扱う
-        let callback_def : CallbackInterfaceDef = { name: get_name(item) }
+        // Callback interface から operation を抽出
+        // callback interface EventListener { void handleEvent(Event event); }
+        let members_array = get_members(item)
+        let members_len = js_array_length(members_array)
+        let mut return_type : IdlType? = None
+        let arguments : Array[Argument] = []
+        // 最初の operation を探す
+        let mut j = 0
+        while j < members_len {
+          let js_mem : JsValue = js_array_get(members_array, j)
+          if get_type(js_mem) == "operation" {
+            // 戻り値の型を取得
+            return_type = Some(convert_idl_type(get_idl_type(js_mem)))
+            // 引数を取得
+            let args_array = get_arguments(js_mem)
+            let args_len = js_array_length(args_array)
+            let mut k = 0
+            while k < args_len {
+              let js_arg : JsValue = js_array_get(args_array, k)
+              let dv = get_default_value(js_arg)
+              let arg : Argument = {
+                name: get_name(js_arg),
+                idl_type: convert_idl_type(get_idl_type(js_arg)),
+                optional: is_optional(js_arg),
+                default_value: if dv == "" {
+                  None
+                } else {
+                  Some(dv)
+                },
+              }
+              arguments.push(arg)
+              k = k + 1
+            }
+            break
+          }
+          j = j + 1
+        }
+        let callback_def : CallbackInterfaceDef = {
+          name: get_name(item),
+          return_type,
+          arguments,
+        }
         definitions.push(CallbackInterface(callback_def))
       }
       "callback" => {
-        // Simple callback (e.g., callback FrameRequestCallback = ...)
-        // Treat as opaque type like callback interface
-        let callback_def : CallbackInterfaceDef = { name: get_name(item) }
+        // Simple callback (e.g., callback FrameRequestCallback = undefined (DOMHighResTimeStamp time))
+        let return_type = Some(convert_idl_type(get_idl_type(item)))
+        let arguments : Array[Argument] = []
+        let args_array = get_arguments(item)
+        let args_len = js_array_length(args_array)
+        let mut j = 0
+        while j < args_len {
+          let js_arg : JsValue = js_array_get(args_array, j)
+          let dv = get_default_value(js_arg)
+          let arg : Argument = {
+            name: get_name(js_arg),
+            idl_type: convert_idl_type(get_idl_type(js_arg)),
+            optional: is_optional(js_arg),
+            default_value: if dv == "" {
+              None
+            } else {
+              Some(dv)
+            },
+          }
+          arguments.push(arg)
+          j = j + 1
+        }
+        let callback_def : CallbackInterfaceDef = {
+          name: get_name(item),
+          return_type,
+          arguments,
+        }
         definitions.push(CallbackInterface(callback_def))
       }
       "dictionary" => {

@@ -317,10 +317,7 @@ async fn main {
               merged,
               global_enum_map,
             )
-            let output_file = path_join(
-              args.output,
-              result.spec_name + ".mbt",
-            )
+            let output_file = path_join(args.output, result.spec_name + ".mbt")
             write_file_sync(output_file, code)
             success_count = success_count + 1
             total_defs = total_defs + merged.length()

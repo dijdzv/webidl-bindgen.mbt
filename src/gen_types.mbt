@@ -38,7 +38,14 @@ fn type_to_moonbit(idl_type : IdlType) -> String {
         name
       }
     }
-    Sequence(_) => "JsValue"
+    Sequence(inner) => {
+      let inner_type = type_to_moonbit(inner)
+      "Array[" + inner_type + "]"
+    }
+    Promise(inner) => {
+      let inner_type = type_to_moonbit(inner)
+      "Promise[" + inner_type + "]"
+    }
     Union(_) => "JsValue"
     Any => "JsValue"
   }
@@ -129,7 +136,8 @@ pub fn gen_dictionary(dict : DictionaryDef) -> String {
             String => "\"\""
             Nullable(_) => "None"
             Void => "()"
-            Named(_) | Any | Sequence(_) | Union(_) =>
+            Sequence(_) => "[]" // 空配列
+            Named(_) | Any | Promise(_) | Union(_) =>
               // デフォルトコンストラクタでは扱えないので、
               // @json.from_json などで初期化する必要がある
               "panic()"

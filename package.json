@@ -1,35 +1,35 @@
 {
-  "name": "webidl-bindgen.mbt",
-  "version": "0.2.4",
-  "description": "WebIDL to MoonBit binding generator",
-  "bin": {
-    "webidl-bindgen.mbt": "./target/js/release/build/webidl-bindgen.js"
-  },
-  "files": [
-    "target/js/release/build/webidl-bindgen.js"
-  ],
-  "scripts": {
-    "build": "moon build --target js && bun run add-shebang",
-    "add-shebang": "echo '#!/usr/bin/env node' | cat - target/js/release/build/webidl-bindgen.js > temp && mv temp target/js/release/build/webidl-bindgen.js",
-    "prepublishOnly": "bun run build"
-  },
-  "keywords": [
-    "webidl",
-    "moonbit",
-    "codegen",
-    "binding"
-  ],
-  "author": "dijdzv",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/dijdzv/webidl-bindgen.mbt.git"
-  },
-  "dependencies": {
-    "@webref/idl": "^3.70.1",
-    "webidl2": "^24.4.1"
-  },
-  "engines": {
-    "node": ">=18"
-  }
+    "name": "webidl-bindgen.mbt",
+    "version": "0.2.4",
+    "description": "WebIDL to MoonBit binding generator",
+    "bin": {
+        "webidl-bindgen.mbt": "./target/js/release/build/webidl-bindgen.js"
+    },
+    "files": [
+        "target/js/release/build/webidl-bindgen.js"
+    ],
+    "scripts": {
+        "build": "moon build --target js && bun run add-shebang",
+        "add-shebang": "echo '#!/usr/bin/env node' | cat - target/js/release/build/webidl-bindgen.js > temp && mv temp target/js/release/build/webidl-bindgen.js",
+        "prepublishOnly": "bun run build"
+    },
+    "keywords": [
+        "webidl",
+        "moonbit",
+        "codegen",
+        "binding"
+    ],
+    "author": "dijdzv",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/dijdzv/webidl-bindgen.mbt.git"
+    },
+    "dependencies": {
+        "@webref/idl": "^3.70.1",
+        "webidl2": "^24.4.1"
+    },
+    "engines": {
+        "node": ">=18"
+    }
 }

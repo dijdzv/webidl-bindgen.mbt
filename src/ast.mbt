@@ -37,9 +37,13 @@ pub struct InterfaceMixinDef {
 }
 
 ///|
-/// Callback Interface 定義（opaque型として扱う）
+/// Callback Interface 定義
+/// callback interface EventListener { void handleEvent(Event event); }
+/// または callback FrameRequestCallback = void (DOMHighResTimeStamp time);
 pub struct CallbackInterfaceDef {
   name : String
+  return_type : IdlType? // void の場合は None
+  arguments : Array[Argument] // コールバックの引数
 }
 
 ///|
@@ -49,6 +53,23 @@ pub enum InterfaceMember {
   Attribute(AttributeDef)
   Const(ConstDef)
   Constructor(ConstructorDef)
+  Maplike(MaplikeDef)
+  Setlike(SetlikeDef)
+}
+
+///|
+/// Maplike 定義
+pub struct MaplikeDef {
+  key_type : IdlType
+  value_type : IdlType
+  is_readonly : Bool
+}
+
+///|
+/// Setlike 定義
+pub struct SetlikeDef {
+  value_type : IdlType
+  is_readonly : Bool
 }
 
 ///|
@@ -135,6 +156,7 @@ pub enum IdlType {
   Primitive(String) // "double", "boolean", "long", etc.
   String // DOMString
   Sequence(IdlType) // sequence<T>
+  Promise(IdlType) // Promise<T>
   Nullable(IdlType) // T?
   Union(Array[IdlType]) // (A or B)
   Named(String) // カスタム型名

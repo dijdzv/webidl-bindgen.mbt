@@ -61,6 +61,11 @@ fn collect_types_from_member(
       for arg in ctor.arguments {
         collect_types_from_idl_type(arg.idl_type, refs)
       }
+    Maplike(m) => {
+      collect_types_from_idl_type(m.key_type, refs)
+      collect_types_from_idl_type(m.value_type, refs)
+    }
+    Setlike(s) => collect_types_from_idl_type(s.value_type, refs)
   }
 }
 
@@ -71,6 +76,7 @@ fn collect_types_from_idl_type(t : IdlType, refs : Array[String]) -> Unit {
     Named(name) => if not(array_contains(refs, name)) { refs.push(name) }
     Nullable(inner) => collect_types_from_idl_type(inner, refs)
     Sequence(inner) => collect_types_from_idl_type(inner, refs)
+    Promise(inner) => collect_types_from_idl_type(inner, refs)
     Union(types) =>
       for ut in types {
         collect_types_from_idl_type(ut, refs)
@@ -367,7 +373,7 @@ pub fn format_definitions(
       }
     }
 
-    // CallbackInterface を出力（opaque型として）
+    // CallbackInterface を出力（opaque型 + from_fn ヘルパー）
     for def in definitions {
       match def {
         CallbackInterface(cb) => {
@@ -377,6 +383,10 @@ pub fn format_definitions(
           result.write_string("pub type ")
           result.write_string(cb.name)
           result.write_string("\n\n")
+          // from_fn ヘルパーを生成（引数がある場合のみ）
+          if cb.arguments.length() > 0 {
+            result.write_string(gen_callback_from_fn(cb))
+          }
         }
         _ => ()
       }
@@ -775,6 +785,8 @@ fn get_member_name(mem : InterfaceMember) -> String {
     Attribute(attr) => attr.name
     Const(c) => c.name
     Constructor(_) => "" // Constructors don't have names
+    Maplike(_) => "" // Maplike is a type-level feature, not a named member
+    Setlike(_) => "" // Setlike is a type-level feature, not a named member
   }
 }
 
@@ -848,6 +860,10 @@ pub fn gen_shared_types_with_externals(
   )
   result.write_string("  #| (s) => s\n\n")
 
+  // Promise type (WebIDL built-in)
+  result.write_string("/// JavaScript Promise type\n")
+  result.write_string("pub type Promise[T]\n\n")
+
   // External type declarations
   if external_types.length() > 0 {
     result.write_string(
@@ -912,7 +928,7 @@ pub fn format_spec_output(
       }
     }
 
-    // CallbackInterface を出力（opaque型として）
+    // CallbackInterface を出力（opaque型 + from_fn ヘルパー）
     for def in definitions {
       match def {
         CallbackInterface(cb) => {
@@ -922,6 +938,10 @@ pub fn format_spec_output(
           result.write_string("pub type ")
           result.write_string(cb.name)
           result.write_string("\n\n")
+          // from_fn ヘルパーを生成（引数がある場合のみ）
+          if cb.arguments.length() > 0 {
+            result.write_string(gen_callback_from_fn(cb))
+          }
         }
         _ => ()
       }
@@ -1195,6 +1215,8 @@ fn get_interface_member_name(m : InterfaceMember) -> String {
     Attribute(attr) => attr.name
     Const(c) => c.name
     Constructor(_) => "constructor"
+    Maplike(_) => "maplike"
+    Setlike(_) => "setlike"
   }
 }
 
@@ -1313,4 +1335,47 @@ fn collect_inherited_dictionary_members(
       result
     }
   }
+}
+
+///|
+/// Callback interface の from_fn ヘルパーを生成
+/// 例: pub extern "js" fn EventListener::from_fn(handler : (Event) -> Unit) -> EventListener
+fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
+  let result = StringBuilder::new()
+
+  // ドキュメントコメント
+  result.write_string("/// Create ")
+  result.write_string(cb.name)
+  result.write_string(" from a MoonBit function\n")
+
+  // 関数シグネチャ
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(cb.name)
+  result.write_string("::from_fn(handler : (")
+
+  // 引数の型リスト
+  let args_len = cb.arguments.length()
+  for i = 0; i < args_len; i = i + 1 {
+    let arg = cb.arguments[i]
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(idl_type_to_moonbit(arg.idl_type))
+  }
+
+  // 戻り値の型
+  result.write_string(") -> ")
+  match cb.return_type {
+    Some(Void) | None => result.write_string("Unit")
+    Some(t) => result.write_string(idl_type_to_moonbit(t))
+  }
+
+  // 関数の戻り値（Callback型）
+  result.write_string(") -> ")
+  result.write_string(cb.name)
+  result.write_string(" =\n")
+
+  // JS実装（MoonBit関数はそのままJS関数として使える）
+  result.write_string("  #| (handler) => handler\n\n")
+  result.to_string()
 }
