@@ -288,7 +288,7 @@ async fn main {
 
       // Write shared.mbt with common types and external declarations
       let shared_code = gen_shared_types_with_externals(external_types)
-      let shared_file = path_join(args.output, "shared.js.mbt")
+      let shared_file = path_join(args.output, "shared.mbt")
       println("Writing: " + shared_file)
       write_file_sync(shared_file, shared_code)
 
@@ -319,7 +319,7 @@ async fn main {
             )
             let output_file = path_join(
               args.output,
-              result.spec_name + ".js.mbt",
+              result.spec_name + ".mbt",
             )
             write_file_sync(output_file, code)
             success_count = success_count + 1
@@ -358,7 +358,7 @@ async fn main {
 
     // Write output file
     let basename = if args.all { "websys" } else { "bindings" }
-    let output_file = path_join(args.output, basename + ".js.mbt")
+    let output_file = path_join(args.output, basename + ".mbt")
     println("Writing: " + output_file)
     write_file_sync(output_file, output_code)
     if error_count > 0 {
@@ -413,7 +413,7 @@ async fn main {
   let output_code = format_output(source_file, definitions)
 
   // Write output file
-  let output_file = path_join(args.output, basename + ".js.mbt")
+  let output_file = path_join(args.output, basename + ".mbt")
   println("Writing: " + output_file)
   write_file_sync(output_file, output_code)
   println("Done!")
