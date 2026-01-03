@@ -81,6 +81,25 @@ fn is_empty_op_name(s : String) -> Bool {
 }
 
 ///|
+/// 文字列の先頭1文字を削除
+fn remove_leading_char(s : String) -> String {
+  if s.length() <= 1 {
+    return ""
+  }
+  // Build new string without first character
+  let result = StringBuilder::new()
+  let mut skip_first = true
+  for c in s {
+    if skip_first {
+      skip_first = false
+      continue
+    }
+    result.write_char(c)
+  }
+  result.to_string()
+}
+
+///|
 /// snake_case を変換（ハイフンもアンダースコアに変換）
 pub fn to_snake_case(name : String) -> String {
   let result = StringBuilder::new()
@@ -126,11 +145,27 @@ pub fn gen_static_operation(
   op : OperationDef,
   enum_map : Array[(String, Array[String])],
 ) -> String {
+  gen_static_operation_with_suffix(interface_name, op, enum_map, "")
+}
+
+///|
+/// Static Operation から extern js fn を生成（サフィックス付き）
+pub fn gen_static_operation_with_suffix(
+  interface_name : String,
+  op : OperationDef,
+  enum_map : Array[(String, Array[String])],
+  suffix : String,
+) -> String {
   // 名前なしの特殊メソッドはスキップ
   if is_empty_op_name(op.name) {
     return ""
   }
-  let fn_name = escape_reserved(to_snake_case(op.name))
+  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let fn_name = if suffix == "" {
+    base_fn_name
+  } else {
+    base_fn_name + suffix
+  }
   let return_type = idl_type_to_moonbit(op.return_type)
 
   // 引数リスト生成（self なし）
@@ -459,6 +494,207 @@ pub fn gen_operation(
 }
 
 ///|
+/// 同名operationをグループ化し、引数数でソート
+/// Map型の代わりに Array[(String, Array[OperationDef])] を返す
+pub fn group_operations_by_name(
+  members : Array[InterfaceMember]
+) -> Array[(String, Array[OperationDef])] {
+  let groups : Array[(String, Array[OperationDef])] = []
+
+  // Operation のみを抽出してグループ化
+  for mem in members {
+    match mem {
+      Operation(op) => {
+        // 空名のoperationはスキップ
+        if is_empty_op_name(op.name) {
+          continue
+        }
+
+        // 既存のグループを探す
+        let mut found = false
+        for i = 0; i < groups.length(); i = i + 1 {
+          let (name, ops) = groups[i]
+          if name == op.name {
+            ops.push(op)
+            groups[i] = (name, ops)
+            found = true
+            break
+          }
+        }
+
+        // 新しいグループを作成
+        if not(found) {
+          let new_group : Array[OperationDef] = [op]
+          groups.push((op.name, new_group))
+        }
+      }
+      _ => ()
+    }
+  }
+
+  // 各グループ内で「必須引数」数の少ない順にソート
+  // optional引数を持つoperationは、最初のoptional引数の位置を必須引数数とする
+  for i = 0; i < groups.length(); i = i + 1 {
+    let (name, ops) = groups[i]
+    // バブルソート（必須引数数の昇順）
+    for j = 0; j < ops.length(); j = j + 1 {
+      for k = j + 1; k < ops.length(); k = k + 1 {
+        // 必須引数数を計算
+        let first_optional_j = find_first_optional_arg_index(ops[j].arguments)
+        let required_args_j = if first_optional_j < 0 {
+          ops[j].arguments.length()
+        } else {
+          first_optional_j
+        }
+        let first_optional_k = find_first_optional_arg_index(ops[k].arguments)
+        let required_args_k = if first_optional_k < 0 {
+          ops[k].arguments.length()
+        } else {
+          first_optional_k
+        }
+        if required_args_j > required_args_k {
+          // swap
+          let temp = ops[j]
+          ops[j] = ops[k]
+          ops[k] = temp
+        }
+      }
+    }
+    groups[i] = (name, ops)
+  }
+
+  groups
+}
+
+///|
+/// オーバーロードのサフィックスを生成（差分ベース）
+///
+/// Rust web-sysの命名規則に従い、差分引数から "_with_xxx_and_yyy" 形式のサフィックスを生成します。
+/// 注意: 同じ引数数で異なる型のオーバーロードがある場合は gen_overload_suffix_from_all を使用してください。
+///
+/// # 引数
+/// - `base_args`: 最小シグネチャの引数配列
+/// - `full_args`: 現在のオーバーロードの引数配列
+///
+/// # 戻り値
+/// - "_with_xxx_and_yyy" 形式のサフィックス（ベース版は空文字列）
+///
+/// # 例
+/// ```moonbit
+/// // base_args: [image, dx, dy], full_args: [image, dx, dy]
+/// // → ""
+///
+/// // base_args: [image, dx, dy], full_args: [image, dx, dy, dw, dh]
+/// // → "_with_dw_and_dh"
+///
+/// // base_args: [data, dx, dy], full_args: [data, dx, dy, dirtyX, dirtyY, dirtyWidth, dirtyHeight]
+/// // → "_with_dirty_x_and_dirty_y_and_dirty_width_and_dirty_height"
+/// ```
+pub fn gen_overload_suffix(
+  base_args : Array[Argument],
+  full_args : Array[Argument],
+) -> String {
+  let base_len = base_args.length()
+  let full_len = full_args.length()
+
+  // 差分がない場合は空文字列
+  if base_len == full_len {
+    return ""
+  }
+
+  // 差分引数のsnake_case名を収集
+  let result = StringBuilder::new()
+  result.write_string("_with")
+
+  for i = base_len; i < full_len; i = i + 1 {
+    let arg_name = to_snake_case(full_args[i].name)
+    result.write_string("_")
+    result.write_string(arg_name)
+    if i < full_len - 1 {
+      result.write_string("_and")
+    }
+  }
+
+  result.to_string()
+}
+
+///|
+/// 引数の型名を snake_case に変換
+fn arg_type_to_snake_case(arg_type : IdlType) -> String {
+  match arg_type {
+    Named(name) => to_snake_case(name)
+    String => "string"
+    Primitive(name) => to_snake_case(name)
+    Nullable(inner) => arg_type_to_snake_case(inner)
+    Sequence(_) => "array"
+    Promise(_) => "promise"
+    Union(_) => "union"
+    Any => "any"
+    Void => "void"
+  }
+}
+
+///|
+/// オーバーロードのサフィックスを全引数から生成
+///
+/// 同じ引数数で異なる型のオーバーロードがある場合に使用します。
+/// 全ての引数名から "_with_xxx_and_yyy" 形式のサフィックスを生成します。
+/// 引数名が同じ場合は型名も含めます。
+///
+/// # 引数
+/// - `args`: 引数配列
+///
+/// # 戻り値
+/// - "_with_xxx_and_yyy" 形式のサフィックス（引数が0個の場合は空文字列）
+///
+/// # 例
+/// ```moonbit
+/// // args: [name: String]
+/// // → "_with_name"
+///
+/// // args: [data: Blob]
+/// // → "_with_data_blob"  (型名を含む)
+///
+/// // args: [name: String, value: Int]
+/// // → "_with_name_and_value"
+/// ```
+pub fn gen_overload_suffix_from_all(args : Array[Argument]) -> String {
+  let len = args.length()
+
+  // 引数がない場合は空文字列
+  if len == 0 {
+    return ""
+  }
+
+  // 全引数のsnake_case名を収集
+  let result = StringBuilder::new()
+  result.write_string("_with")
+
+  for i = 0; i < len; i = i + 1 {
+    let arg = args[i]
+    let arg_name = to_snake_case(arg.name)
+    result.write_string("_")
+    result.write_string(arg_name)
+
+    // 型名も追加（引数名だけでは区別できない場合のため）
+    // シンプルな型（Named）の場合のみ追加
+    match arg.idl_type {
+      Named(_) => {
+        result.write_string("_")
+        result.write_string(arg_type_to_snake_case(arg.idl_type))
+      }
+      _ => ()
+    }
+
+    if i < len - 1 {
+      result.write_string("_and")
+    }
+  }
+
+  result.to_string()
+}
+
+///|
 /// optional引数の最初のインデックスを取得（なければ-1）
 fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
   for i = 0; i < args.length(); i = i + 1 {
@@ -624,6 +860,175 @@ pub fn gen_operation_variants(
   result.write_string(full_code)
   fn_names.push(base_fn_name + "_" + suffix)
   (result.to_string(), fn_names)
+}
+
+///|
+/// オーバーロードされた通常operationの全バリアントを生成
+/// グループ内の最小引数版をベース名で、それ以外はサフィックス付きで生成
+pub fn gen_overloaded_operations(
+  interface_name : String,
+  ops : Array[OperationDef],
+  enum_map : Array[(String, Array[String])],
+  generated_methods : Array[String],
+) -> String {
+  let result = StringBuilder::new()
+
+  // 空の場合は何も生成しない
+  if ops.length() == 0 {
+    return ""
+  }
+
+  // 単一のoperationの場合は既存のgen_operation_variantsを使用
+  if ops.length() == 1 {
+    let (code, fn_names) = gen_operation_variants(
+      interface_name,
+      ops[0],
+      enum_map,
+    )
+    for name in fn_names {
+      generated_methods.push(name)
+    }
+    return code
+  }
+
+  // 複数のオーバーロードがある場合
+  // 各オーバーロードのoptional引数も考慮して全バリアントを生成
+
+  for i = 0; i < ops.length(); i = i + 1 {
+    let op = ops[i]
+    let first_optional = find_first_optional_arg_index(op.arguments)
+    let total_args = op.arguments.length()
+
+    if first_optional < 0 {
+      // optional引数がない場合
+      if i == 0 {
+        // 最初のオーバーロード（最小引数）はベース名で生成
+        let base_fn_name = escape_reserved(to_snake_case(op.name))
+        generated_methods.push(base_fn_name)
+        result.write_string(gen_operation(interface_name, op, enum_map))
+        result.write_string("\n")
+      } else {
+        // それ以外は全引数からサフィックスを生成（同じ引数数でも区別される）
+        let suffix = gen_overload_suffix_from_all(op.arguments)
+        let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
+        generated_methods.push(fn_name)
+        result.write_string(
+          gen_operation_with_arg_count(
+            interface_name,
+            op,
+            enum_map,
+            total_args,
+            remove_leading_char(suffix), // Remove leading underscore
+          ),
+        )
+        result.write_string("\n")
+      }
+    } else {
+      // optional引数がある場合、必須部分と全引数版の両方を生成
+      let base_fn_name = escape_reserved(to_snake_case(op.name))
+
+      // 必須引数のみの配列を作成
+      let required_args : Array[Argument] = []
+      for j = 0; j < first_optional; j = j + 1 {
+        required_args.push(op.arguments[j])
+      }
+
+      // 必須引数版
+      let required_suffix = if i == 0 {
+        ""
+      } else {
+        // 2番目以降のオーバーロードは、必須引数部分から全引数ベースでサフィックス生成
+        gen_overload_suffix_from_all(required_args)
+      }
+      let required_fn_name = base_fn_name + required_suffix
+      generated_methods.push(required_fn_name)
+      result.write_string(
+        gen_operation_with_arg_count(
+          interface_name,
+          op,
+          enum_map,
+          first_optional,
+          if required_suffix == "" { "" } else { remove_leading_char(required_suffix) },
+        ),
+      )
+      result.write_string("\n")
+
+      // 全引数版（全引数からサフィックス生成）
+      let full_suffix = if i == 0 {
+        // 最初のオーバーロードの場合は、最後のoptional引数だけ
+        let last_optional_arg = op.arguments[total_args - 1]
+        "_with_" + to_snake_case(last_optional_arg.name)
+      } else {
+        // 2番目以降は全引数からサフィックス生成
+        gen_overload_suffix_from_all(op.arguments)
+      }
+      let full_fn_name = base_fn_name + full_suffix
+      generated_methods.push(full_fn_name)
+      result.write_string(
+        gen_operation_with_arg_count(
+          interface_name,
+          op,
+          enum_map,
+          total_args,
+          remove_leading_char(full_suffix),
+        ),
+      )
+      result.write_string("\n")
+    }
+  }
+  result.to_string()
+}
+
+///|
+/// オーバーロードされたstatic operationの全バリアントを生成
+pub fn gen_overloaded_static_operations(
+  interface_name : String,
+  ops : Array[OperationDef],
+  enum_map : Array[(String, Array[String])],
+  generated_methods : Array[String],
+) -> String {
+  let result = StringBuilder::new()
+
+  // 空の場合は何も生成しない
+  if ops.length() == 0 {
+    return ""
+  }
+
+  // 単一のstatic operationの場合は通常生成
+  if ops.length() == 1 {
+    let base_fn_name = escape_reserved(to_snake_case(ops[0].name))
+    generated_methods.push(base_fn_name)
+    result.write_string(gen_static_operation(interface_name, ops[0], enum_map))
+    return result.to_string()
+  }
+
+  // 複数のオーバーロードがある場合
+
+  for i = 0; i < ops.length(); i = i + 1 {
+    let op = ops[i]
+    if i == 0 {
+      // 最初のオーバーロードはベース名で生成
+      let base_fn_name = escape_reserved(to_snake_case(op.name))
+      generated_methods.push(base_fn_name)
+      result.write_string(gen_static_operation(interface_name, op, enum_map))
+      result.write_string("\n")
+    } else {
+      // それ以外は全引数からサフィックスを生成（同じ引数数でも区別される）
+      let suffix = gen_overload_suffix_from_all(op.arguments)
+      let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
+      generated_methods.push(fn_name)
+      result.write_string(
+        gen_static_operation_with_suffix(
+          interface_name,
+          op,
+          enum_map,
+          suffix,
+        ),
+      )
+      result.write_string("\n")
+    }
+  }
+  result.to_string()
 }
 
 ///|
@@ -920,6 +1325,9 @@ pub fn gen_interface_binding(
   let generated_constants : Array[String] = []
   let mut has_constructor = false
 
+  // Group operations by name for overload handling
+  let operation_groups = group_operations_by_name(iface.members)
+
   // メンバー生成
   let members_len = iface.members.length()
   for i = 0; i < members_len; i = i + 1 {
@@ -971,29 +1379,58 @@ pub fn gen_interface_binding(
             }
           }
           Some("static") => {
-            // static operation
-            let fn_name = to_snake_case(op.name)
-            if not(array_contains(generated_methods, fn_name)) {
-              generated_methods.push(fn_name)
-              result.write_string(
-                gen_static_operation(iface.name, op, enum_map),
-              )
-              result.write_string("\n")
+            // static operation - handle overloads
+            let base_fn_name = to_snake_case(op.name)
+            if not(array_contains(generated_methods, base_fn_name)) {
+              // Find all static operations with this name
+              let group : Array[OperationDef] = []
+              for j = 0; j < operation_groups.length(); j = j + 1 {
+                let (name, ops) = operation_groups[j]
+                if name == op.name {
+                  for o in ops {
+                    match o.special {
+                      Some("static") => group.push(o)
+                      _ => ()
+                    }
+                  }
+                  break
+                }
+              }
+
+              // Generate all overloads
+              if group.length() > 0 {
+                let code = gen_overloaded_static_operations(
+                  iface.name,
+                  group,
+                  enum_map,
+                  generated_methods,
+                )
+                result.write_string(code)
+                result.write_string("\n")
+              }
             }
           }
           _ => {
-            // 通常の operation（optional引数対応）
+            // 通常の operation - handle both overloads and optional arguments
             let base_fn_name = to_snake_case(op.name)
-            // Skip if base name already generated (handles overloads)
             if not(array_contains(generated_methods, base_fn_name)) {
-              let (code, fn_names) = gen_operation_variants(
-                iface.name,
-                op,
-                enum_map,
-              )
-              for name in fn_names {
-                generated_methods.push(name)
+              // Find all operations with this name
+              let mut group : Array[OperationDef] = []
+              for j = 0; j < operation_groups.length(); j = j + 1 {
+                let (name, ops) = operation_groups[j]
+                if name == op.name {
+                  group = ops
+                  break
+                }
               }
+
+              // Generate all overloads
+              let code = gen_overloaded_operations(
+                iface.name,
+                group,
+                enum_map,
+                generated_methods,
+              )
               result.write_string(code)
               result.write_string("\n")
             }
