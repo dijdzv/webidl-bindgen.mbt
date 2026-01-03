@@ -44,6 +44,7 @@ struct CliArgs {
   specs : String // comma-separated list of specs
   all : Bool // load all specs
   per_spec : Bool // output each spec to separate file
+  sub_packages : Bool // output each spec to subdirectory with moon.pkg.json
   output : String
   help : Bool
 }
@@ -56,6 +57,7 @@ fn parse_args() -> CliArgs {
   let mut specs = ""
   let mut all = false
   let mut per_spec = false
+  let mut sub_packages = false
   let mut output = "./"
   let mut help = false
   let mut i = 2 // Skip node and script path
@@ -82,6 +84,8 @@ fn parse_args() -> CliArgs {
       all = true
     } else if arg == "--per-spec" {
       per_spec = true
+    } else if arg == "--sub-packages" {
+      sub_packages = true
     } else if arg == "--output" || arg == "-o" {
       i = i + 1
       if i < argc {
@@ -93,7 +97,7 @@ fn parse_args() -> CliArgs {
     }
     i = i + 1
   }
-  { input, spec, specs, all, per_spec, output, help }
+  { input, spec, specs, all, per_spec, sub_packages, output, help }
 }
 
 ///|
@@ -111,6 +115,9 @@ fn print_usage() -> Unit {
   println(
     "      --per-spec          Output each spec to separate file (with --all or --specs)",
   )
+  println(
+    "      --sub-packages      Output each spec to subdirectory with moon.pkg.json",
+  )
   println("  -o, --output <dir>      Output directory (default: ./)")
   println("  -h, --help              Show this help message")
   println("")
@@ -123,6 +130,9 @@ fn print_usage() -> Unit {
   println("  webidl-bindgen --all -o ./src/")
   println(
     "  webidl-bindgen --all --per-spec -o ./src/  # Output each spec separately",
+  )
+  println(
+    "  webidl-bindgen --all --sub-packages -o ./src/  # Output as subpackages",
   )
 }
 
@@ -328,6 +338,244 @@ async fn main {
         "Done! Generated " +
         success_count.to_string() +
         " files with " +
+        total_defs.to_string() +
+        " total definitions",
+      )
+      return
+    }
+
+    // Sub-packages mode: output each spec to subdirectory with moon.pkg.json
+    if args.sub_packages {
+      println("Generating sub-packages with dependency resolution...")
+
+      // Build global type ownership map
+      println("Building type ownership map...")
+      let ownership = build_global_type_ownership(results)
+      println("Registered " + ownership.length().to_string() + " unique types")
+
+      // Collect all definitions
+      let all_definitions = merge_all_results(results)
+
+      // Build dependency graph
+      println("Building dependency graph...")
+      let deps = build_dependency_graph(results, ownership)
+      println("Analyzed " + deps.length().to_string() + " specs")
+
+      // Step 1: Create category-based groups first (WebGL, CSS, etc.)
+      println("Creating category-based groups...")
+      let (cat_groups, cat_mapping) = create_category_groups(deps)
+      println("Created " + cat_groups.length().to_string() + " category groups")
+
+      // Build initial spec -> group mapping from category groups
+      let spec_to_group : Array[(String, String)] = []
+      for entry in cat_mapping {
+        spec_to_group.push(entry)
+      }
+
+      // Step 2: Find bidirectional dependencies for non-categorized specs
+      println("Finding bidirectional dependencies...")
+      let bi_groups = find_bidirectional_groups(deps)
+
+      // Only keep bi_groups for specs NOT already in category groups
+      let filtered_bi_groups : Array[PackageGroup] = []
+      for g in bi_groups {
+        let new_specs : Array[String] = []
+        for s in g.specs {
+          let mut in_category = false
+          for entry in spec_to_group {
+            if entry.0 == s {
+              in_category = true
+              break
+            }
+          }
+          if not(in_category) {
+            new_specs.push(s)
+          }
+        }
+        if new_specs.length() > 1 {
+          // Only keep if there are still multiple specs
+          filtered_bi_groups.push(PackageGroup::{
+            name: determine_group_name(new_specs),
+            specs: new_specs,
+            depends_on: [],
+          })
+        }
+      }
+      println("Found " + filtered_bi_groups.length().to_string() + " bidirectional groups")
+
+      // Add filtered bidirectional groups to mapping
+      for g in filtered_bi_groups {
+        for s in g.specs {
+          spec_to_group.push((s, g.name))
+        }
+      }
+
+      // Step 3: Create independent groups for remaining specs
+      let ind_groups = create_independent_groups(deps, spec_to_group)
+
+      // Combine all groups
+      let all_groups : Array[PackageGroup] = []
+      for g in cat_groups {
+        all_groups.push(g)
+      }
+      for g in filtered_bi_groups {
+        all_groups.push(g)
+      }
+      for g in ind_groups {
+        all_groups.push(g)
+      }
+
+      // Add independent specs to spec_to_group mapping
+      for g in ind_groups {
+        for s in g.specs {
+          spec_to_group.push((s, g.name))
+        }
+      }
+
+      // Compute dependencies between groups (now with complete spec_to_group)
+      compute_group_dependencies(deps, all_groups, spec_to_group)
+
+      // Merge groups with bidirectional dependencies iteratively
+      println("Merging bidirectional group dependencies...")
+      let merged_groups = merge_bidirectional_groups(all_groups)
+      println("After merging: " + merged_groups.length().to_string() + " groups")
+
+      // Rebuild spec_to_group from merged groups
+      let final_spec_to_group = build_spec_to_group_map(merged_groups)
+
+      // Topological sort
+      let sorted_groups = topological_sort(merged_groups)
+      println("Sorted " + sorted_groups.length().to_string() + " packages")
+
+      // Collect external types
+      let external_types = collect_external_types_with_ownership(
+        all_definitions, ownership,
+      )
+
+      // Create core subdirectory for shared types (JsValue, Promise, external types)
+      let core_dir = path_join(args.output, "core")
+      mkdir_sync(core_dir)
+
+      // Core types
+      let core_types : Array[String] = ["JsValue", "Promise"]
+      for ext in external_types {
+        core_types.push(ext)
+      }
+
+      // Write core/shared.mbt
+      let shared_code = gen_core_shared_types(external_types)
+      let shared_file = path_join(core_dir, "shared.mbt")
+      println("Writing: " + shared_file)
+      write_file_sync(shared_file, shared_code)
+
+      // Write core/moon.pkg.json
+      let core_pkg_json = "{\n  \"supported-targets\": [\"js\"]\n}\n"
+      let core_pkg_json_file = path_join(core_dir, "moon.pkg.json")
+      write_file_sync(core_pkg_json_file, core_pkg_json)
+
+      // Build global enum map
+      let global_enum_map : Array[(String, Array[String])] = []
+      for def in all_definitions {
+        match def {
+          Enum(e) => global_enum_map.push((e.name, e.values))
+          _ => ()
+        }
+      }
+
+      // Module base path
+      let module_base = "dijdzv/websys"
+
+      // Count for progress
+      let mut success_count = 0
+      let mut total_defs = 0
+
+      // Generate each package
+      for group in sorted_groups {
+        // Collect definitions for this group
+        let group_defs : Array[Definition] = []
+        for spec_name in group.specs {
+          for result in results {
+            if result.spec_name == spec_name && result.success {
+              for def in result.definitions {
+                group_defs.push(def)
+              }
+            }
+          }
+        }
+
+        if group_defs.length() == 0 {
+          continue
+        }
+
+        // Create package directory
+        let pkg_dir = path_join(args.output, group.name)
+        mkdir_sync(pkg_dir)
+
+        // Build import list: core + dependencies
+        let imports : Array[String] = [module_base + "/core"]
+        for dep in group.depends_on {
+          imports.push(module_base + "/" + dep)
+        }
+
+        // Build type -> alias map for imports
+        let type_aliases : Array[(String, String)] = []
+        // Core types use @core
+        for ct in core_types {
+          type_aliases.push((ct, "@core"))
+        }
+        // Dependency types use their group alias
+        for dep in group.depends_on {
+          // Find types defined in this dependency
+          for entry in ownership {
+            // Check if this type's owner spec is in the dependency group
+            let mut in_dep_group = false
+            for g in merged_groups {
+              if g.name == dep {
+                for s in g.specs {
+                  if s == entry.1 {
+                    in_dep_group = true
+                    break
+                  }
+                }
+                break
+              }
+            }
+            if in_dep_group {
+              type_aliases.push((entry.0, "@" + dep))
+            }
+          }
+        }
+
+        // Generate moon.pkg.json with imports
+        let pkg_json = gen_moon_pkg_json_with_imports(imports)
+        let pkg_json_file = path_join(pkg_dir, "moon.pkg.json")
+        write_file_sync(pkg_json_file, pkg_json)
+
+        // Merge and generate code
+        let merged = merge_definitions(group_defs)
+        let code = format_sub_package_output_v2(
+          group.name,
+          group.specs,
+          merged,
+          global_enum_map,
+          type_aliases,
+        )
+        let output_file = path_join(pkg_dir, group.name + ".mbt")
+        write_file_sync(output_file, code)
+
+        success_count = success_count + 1
+        total_defs = total_defs + merged.length()
+
+        // Print merged groups info
+        if group.specs.length() > 1 {
+          println("  Merged: " + group.name + " (" + group.specs.length().to_string() + " specs)")
+        }
+      }
+
+      println(
+        "Done! Generated " +
+        success_count.to_string() +
+        " packages with " +
         total_defs.to_string() +
         " total definitions",
       )

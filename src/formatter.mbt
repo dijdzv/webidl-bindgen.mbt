@@ -753,27 +753,84 @@ fn merge_interface_members(
   _target_name : String,
 ) -> Array[InterfaceMember] {
   let result : Array[InterfaceMember] = []
+  let mut best_ctor : ConstructorDef? = None
+  let mut best_ctor_arg_count = -1
+  let seen_ops : Array[(String, Int)] = []  // (name, arg_count)
 
-  // Copy existing members
+  // Process existing members - track constructors and operations
   for mem in existing {
-    result.push(mem)
+    match mem {
+      Constructor(ctor) => {
+        let arg_count = ctor.arguments.length()
+        if arg_count > best_ctor_arg_count {
+          best_ctor = Some(ctor)
+          best_ctor_arg_count = arg_count
+        }
+      }
+      Operation(op) => {
+        seen_ops.push((op.name, op.arguments.length()))
+        result.push(mem)
+      }
+      _ => result.push(mem)
+    }
   }
 
-  // Add new members, checking for duplicates
+  // Process new members
   for new_mem in new_members {
-    let new_name = get_member_name(new_mem)
-    let mut is_duplicate = false
-    for existing_mem in existing {
-      if get_member_name(existing_mem) == new_name && new_name != "" {
-        // Duplicate detected - skip silently (expected during inheritance)
-        is_duplicate = true
-        break
+    match new_mem {
+      Constructor(ctor) => {
+        let arg_count = ctor.arguments.length()
+        if arg_count > best_ctor_arg_count {
+          best_ctor = Some(ctor)
+          best_ctor_arg_count = arg_count
+        }
+      }
+      Operation(op) => {
+        // Check if this (name, arg_count) combination already exists
+        let mut is_duplicate = false
+        for entry in seen_ops {
+          if entry.0 == op.name && entry.1 == op.arguments.length() {
+            is_duplicate = true
+            break
+          }
+        }
+        if not(is_duplicate) {
+          // Also skip if same name but different arg count (method overloading not supported)
+          let mut name_exists = false
+          for entry in seen_ops {
+            if entry.0 == op.name && op.name != "" {
+              name_exists = true
+              break
+            }
+          }
+          if not(name_exists) {
+            seen_ops.push((op.name, op.arguments.length()))
+            result.push(new_mem)
+          }
+        }
+      }
+      _ => {
+        let new_name = get_member_name(new_mem)
+        let mut is_duplicate = false
+        for existing_mem in existing {
+          if get_member_name(existing_mem) == new_name && new_name != "" {
+            is_duplicate = true
+            break
+          }
+        }
+        if not(is_duplicate) {
+          result.push(new_mem)
+        }
       }
     }
-    if not(is_duplicate) {
-      result.push(new_mem)
-    }
   }
+
+  // Add the best constructor at the end
+  match best_ctor {
+    Some(ctor) => result.push(Constructor(ctor))
+    None => ()
+  }
+
   result
 }
 
@@ -1399,4 +1456,1376 @@ fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
   // JS実装（MoonBit関数はそのままJS関数として使える）
   result.write_string("  #| (handler) => handler\n\n")
   result.to_string()
+}
+
+// ==== Sub-packages mode functions ====
+
+///|
+/// 各 spec が参照する型を収集し、複数 spec から参照される型を特定
+pub fn find_cross_spec_referenced_types(
+  results : Array[SpecLoadResult],
+  ownership : Array[(String, String)],
+) -> Array[String] {
+  // spec_name -> [referenced_type_names]
+  let spec_refs : Array[(String, Array[String])] = []
+  for result in results {
+    if result.success {
+      let refs = collect_referenced_types(result.definitions)
+      spec_refs.push((result.spec_name, refs))
+    }
+  }
+
+  // Count how many specs reference each type
+  let type_counts : Array[(String, Int)] = []
+  for i = 0; i < ownership.length(); i = i + 1 {
+    let (type_name, _owner) = ownership[i]
+    let mut count = 0
+    for j = 0; j < spec_refs.length(); j = j + 1 {
+      let (_spec, refs) = spec_refs[j]
+      for ref_type in refs {
+        if ref_type == type_name {
+          count = count + 1
+          break
+        }
+      }
+    }
+    if count > 1 {
+      type_counts.push((type_name, count))
+    }
+  }
+
+  // Return types referenced by multiple specs
+  let cross_spec_types : Array[String] = []
+  for i = 0; i < type_counts.length(); i = i + 1 {
+    let (type_name, _) = type_counts[i]
+    cross_spec_types.push(type_name)
+  }
+  cross_spec_types
+}
+
+///|
+/// サブパッケージ用の moon.pkg.json を生成
+pub fn gen_moon_pkg_json(module_name : String) -> String {
+  let result = StringBuilder::new()
+  result.write_string("{\n")
+  result.write_string("  \"import\": [\n")
+  result.write_string("    \"")
+  result.write_string(module_name)
+  result.write_string("\"\n")
+  result.write_string("  ],\n")
+  result.write_string("  \"supported-targets\": [\"js\"]\n")
+  result.write_string("}\n")
+  result.to_string()
+}
+
+///|
+/// 型参照を @parent.Type 形式に変換
+fn convert_type_reference(
+  type_name : String,
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  // Check if this type is in parent package
+  for pt in parent_types {
+    if pt == type_name {
+      return parent_alias + "." + type_name
+    }
+  }
+  type_name
+}
+
+///|
+/// サブパッケージ用のコードを生成（型参照を @parent.Type に変換）
+pub fn format_sub_package_output(
+  spec_name : String,
+  definitions : Array[Definition],
+  global_enum_map : Array[(String, Array[String])],
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+
+  // Header
+  result.write_string("// Generated from WebIDL - DO NOT EDIT\n")
+  result.write_string("// Source: @webref/idl/")
+  result.write_string(spec_name)
+  result.write_string("\n")
+  result.write_string("// Sub-package mode: references to shared types use ")
+  result.write_string(parent_alias)
+  result.write_string(". prefix\n\n")
+
+  // Generate code with converted type references
+  // For now, use the same generation but with type conversion
+  // TODO: Implement proper type reference conversion in gen_* functions
+
+  // Types section
+  let mut has_types = false
+  for def in definitions {
+    match def {
+      Typedef(_) | Enum(_) | Dictionary(_) | CallbackInterface(_) => {
+        has_types = true
+        break
+      }
+      _ => ()
+    }
+  }
+  if has_types {
+    for def in definitions {
+      match def {
+        Typedef(t) => {
+          result.write_string(gen_typedef_with_conversion(t, parent_types, parent_alias))
+          result.write_string("\n")
+        }
+        _ => ()
+      }
+    }
+    for def in definitions {
+      match def {
+        Enum(e) => {
+          result.write_string(gen_enum(e))
+          result.write_string("\n")
+        }
+        _ => ()
+      }
+    }
+    for def in definitions {
+      match def {
+        CallbackInterface(cb) => {
+          result.write_string("/// ")
+          result.write_string(cb.name)
+          result.write_string(" callback interface\n")
+          result.write_string("pub type ")
+          result.write_string(cb.name)
+          result.write_string("\n\n")
+          if cb.arguments.length() > 0 {
+            result.write_string(gen_callback_from_fn_with_conversion(cb, parent_types, parent_alias))
+          }
+        }
+        _ => ()
+      }
+    }
+    for def in definitions {
+      match def {
+        Dictionary(d) => {
+          result.write_string(gen_dictionary_with_conversion(d, parent_types, parent_alias))
+          result.write_string("\n")
+        }
+        _ => ()
+      }
+    }
+  }
+
+  // Interfaces
+  for def in definitions {
+    match def {
+      Interface(iface) => {
+        result.write_string(gen_interface_with_conversion(iface, global_enum_map, parent_types, parent_alias))
+        result.write_string("\n")
+      }
+      _ => ()
+    }
+  }
+
+  result.to_string()
+}
+
+///|
+/// Typedef 生成（型参照変換付き）
+fn gen_typedef_with_conversion(
+  t : TypedefDef,
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string("///|\n")
+  result.write_string("/// ")
+  result.write_string(t.name)
+  result.write_string(" typedef\n")
+  result.write_string("pub type ")
+  result.write_string(t.name)
+  result.write_string(" = ")
+  result.write_string(idl_type_to_moonbit_with_conversion(t.idl_type, parent_types, parent_alias))
+  result.write_string("\n")
+  result.to_string()
+}
+
+///|
+/// Dictionary 生成（型参照変換付き）
+fn gen_dictionary_with_conversion(
+  d : DictionaryDef,
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string("/// ")
+  result.write_string(d.name)
+  result.write_string(" dictionary\n")
+  result.write_string("pub(all) struct ")
+  result.write_string(d.name)
+  result.write_string(" {\n")
+  for mem in d.members {
+    result.write_string("  ")
+    result.write_string(escape_reserved(to_snake_case(mem.name)))
+    result.write_string(" : ")
+    let moonbit_type = idl_type_to_moonbit_with_conversion(mem.idl_type, parent_types, parent_alias)
+    if mem.required {
+      result.write_string(moonbit_type)
+    } else {
+      result.write_string(moonbit_type)
+      result.write_string("?")
+    }
+    result.write_string("\n")
+  }
+  result.write_string("}\n\n")
+  // to_js helper
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(d.name)
+  result.write_string("::to_js(self : ")
+  result.write_string(d.name)
+  result.write_string(") -> ")
+  result.write_string(convert_type_reference("JsValue", parent_types, parent_alias))
+  result.write_string(" =\n")
+  result.write_string("  #| (self) => self\n")
+  result.to_string()
+}
+
+///|
+/// Callback interface from_fn 生成（型参照変換付き）
+fn gen_callback_from_fn_with_conversion(
+  cb : CallbackInterfaceDef,
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string("/// Create ")
+  result.write_string(cb.name)
+  result.write_string(" from a MoonBit function\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(cb.name)
+  result.write_string("::from_fn(handler : (")
+  let mut first = true
+  for arg in cb.arguments {
+    if not(first) {
+      result.write_string(", ")
+    }
+    first = false
+    result.write_string(idl_type_to_moonbit_with_conversion(arg.idl_type, parent_types, parent_alias))
+  }
+  result.write_string(") -> ")
+  result.write_string(convert_type_reference("JsValue", parent_types, parent_alias))
+  result.write_string(") -> ")
+  result.write_string(cb.name)
+  result.write_string(" =\n")
+  result.write_string("  #| (handler) => handler\n\n")
+  result.to_string()
+}
+
+///|
+/// Interface 生成（型参照変換付き）
+fn gen_interface_with_conversion(
+  iface : InterfaceDef,
+  global_enum_map : Array[(String, Array[String])],
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+
+  // Type declaration
+  result.write_string("/// ")
+  result.write_string(iface.name)
+  result.write_string(" interface\n")
+  result.write_string("pub type ")
+  result.write_string(iface.name)
+  result.write_string("\n\n")
+
+  // to_js_value helper
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface.name)
+  result.write_string("::to_js_value(self : ")
+  result.write_string(iface.name)
+  result.write_string(") -> ")
+  result.write_string(convert_type_reference("JsValue", parent_types, parent_alias))
+  result.write_string(" =\n")
+  result.write_string("  #| (self) => self\n\n")
+
+  // Members
+  for mem in iface.members {
+    result.write_string(gen_member_with_conversion(mem, iface.name, global_enum_map, parent_types, parent_alias))
+  }
+
+  result.to_string()
+}
+
+///|
+/// Member 生成（型参照変換付き）
+fn gen_member_with_conversion(
+  mem : InterfaceMember,
+  iface_name : String,
+  global_enum_map : Array[(String, Array[String])],
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  match mem {
+    Attribute(attr) => gen_attribute_with_conversion(attr, iface_name, parent_types, parent_alias)
+    Operation(op) => gen_operation_with_conversion(op, iface_name, global_enum_map, parent_types, parent_alias)
+    Constructor(ctor) => gen_constructor_with_conversion(ctor, iface_name, global_enum_map, parent_types, parent_alias)
+    Const(c) => gen_const_with_conversion(c, iface_name, parent_types, parent_alias)
+    Maplike(_) => "" // Maplike not supported in sub-package mode yet
+    Setlike(_) => "" // Setlike not supported in sub-package mode yet
+  }
+}
+
+///|
+fn gen_attribute_with_conversion(
+  attr : AttributeDef,
+  iface_name : String,
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+  let moonbit_type = idl_type_to_moonbit_with_conversion(attr.idl_type, parent_types, parent_alias)
+
+  // Getter
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface_name)
+  result.write_string("::get_")
+  result.write_string(to_snake_case(attr.name))
+  result.write_string("(self : ")
+  result.write_string(iface_name)
+  result.write_string(") -> ")
+  result.write_string(moonbit_type)
+  result.write_string(" =\n")
+  result.write_string("  #| (self) => self.")
+  result.write_string(attr.name)
+  result.write_string("\n\n")
+
+  // Setter (if not readonly)
+  if not(attr.is_readonly) {
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(iface_name)
+    result.write_string("::set_")
+    result.write_string(to_snake_case(attr.name))
+    result.write_string("(self : ")
+    result.write_string(iface_name)
+    result.write_string(", value : ")
+    result.write_string(moonbit_type)
+    result.write_string(") -> Unit =\n")
+    result.write_string("  #| (self, value) => { self.")
+    result.write_string(attr.name)
+    result.write_string(" = value }\n\n")
+  }
+
+  result.to_string()
+}
+
+///|
+fn gen_operation_with_conversion(
+  op : OperationDef,
+  iface_name : String,
+  global_enum_map : Array[(String, Array[String])],
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+
+  if op.name == "" {
+    return ""
+  }
+
+  // Generate multiple overloads for optional args
+  gen_operation_overloads_with_conversion(
+    result, op, iface_name, global_enum_map, parent_types, parent_alias,
+  )
+
+  result.to_string()
+}
+
+///|
+fn gen_operation_overloads_with_conversion(
+  result : StringBuilder,
+  op : OperationDef,
+  iface_name : String,
+  global_enum_map : Array[(String, Array[String])],
+  parent_types : Array[String],
+  parent_alias : String,
+) -> Unit {
+  let required_count = {
+    let mut count = 0
+    for arg in op.arguments {
+      if not(arg.optional) {
+        count = count + 1
+      }
+    }
+    count
+  }
+  let total_count = op.arguments.length()
+
+  // Generate overloads from required_count to total_count
+  for arg_count = required_count; arg_count <= total_count; arg_count = arg_count + 1 {
+    gen_single_operation_with_conversion(
+      result, op, iface_name, arg_count, global_enum_map, parent_types, parent_alias,
+    )
+  }
+}
+
+///|
+fn gen_single_operation_with_conversion(
+  result : StringBuilder,
+  op : OperationDef,
+  iface_name : String,
+  arg_count : Int,
+  global_enum_map : Array[(String, Array[String])],
+  parent_types : Array[String],
+  parent_alias : String,
+) -> Unit {
+  let suffix = if arg_count < op.arguments.length() {
+    "_" + arg_count.to_string()
+  } else {
+    ""
+  }
+
+  let return_type = idl_type_to_moonbit_with_conversion(op.return_type, parent_types, parent_alias)
+  let is_static = match op.special {
+    Some("static") => true
+    _ => false
+  }
+
+  // Signature
+  if is_static {
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(iface_name)
+    result.write_string("::")
+    result.write_string(to_snake_case(op.name))
+    result.write_string(suffix)
+    result.write_string("(")
+  } else {
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(iface_name)
+    result.write_string("::")
+    result.write_string(to_snake_case(op.name))
+    result.write_string(suffix)
+    result.write_string("(self : ")
+    result.write_string(iface_name)
+  }
+
+  // Arguments
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = op.arguments[i]
+    if i > 0 || not(is_static) {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+    result.write_string(" : ")
+    result.write_string(idl_type_to_moonbit_with_conversion(arg.idl_type, parent_types, parent_alias))
+  }
+
+  result.write_string(") -> ")
+  result.write_string(return_type)
+  result.write_string(" =\n")
+
+  // JS implementation
+  result.write_string("  #| ")
+  if is_static {
+    result.write_string("(")
+    for i = 0; i < arg_count; i = i + 1 {
+      if i > 0 {
+        result.write_string(", ")
+      }
+      result.write_string(escape_reserved(to_snake_case(op.arguments[i].name)))
+    }
+    result.write_string(") => ")
+    result.write_string(iface_name)
+    result.write_string(".")
+    result.write_string(op.name)
+    result.write_string("(")
+    for i = 0; i < arg_count; i = i + 1 {
+      if i > 0 {
+        result.write_string(", ")
+      }
+      result.write_string(escape_reserved(to_snake_case(op.arguments[i].name)))
+    }
+    result.write_string(")\n\n")
+  } else {
+    result.write_string("(self")
+    for i = 0; i < arg_count; i = i + 1 {
+      result.write_string(", ")
+      result.write_string(escape_reserved(to_snake_case(op.arguments[i].name)))
+    }
+    result.write_string(") => self.")
+    result.write_string(op.name)
+    result.write_string("(")
+    for i = 0; i < arg_count; i = i + 1 {
+      if i > 0 {
+        result.write_string(", ")
+      }
+      result.write_string(escape_reserved(to_snake_case(op.arguments[i].name)))
+    }
+    result.write_string(")\n\n")
+  }
+}
+
+///|
+fn gen_constructor_with_conversion(
+  ctor : ConstructorDef,
+  iface_name : String,
+  global_enum_map : Array[(String, Array[String])],
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+
+  let required_count = {
+    let mut count = 0
+    for arg in ctor.arguments {
+      if not(arg.optional) {
+        count = count + 1
+      }
+    }
+    count
+  }
+  let total_count = ctor.arguments.length()
+
+  for arg_count = required_count; arg_count <= total_count; arg_count = arg_count + 1 {
+    let suffix = if arg_count < total_count {
+      "_" + arg_count.to_string()
+    } else {
+      ""
+    }
+
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(iface_name)
+    result.write_string("::new")
+    result.write_string(suffix)
+    result.write_string("(")
+
+    for i = 0; i < arg_count; i = i + 1 {
+      if i > 0 {
+        result.write_string(", ")
+      }
+      let arg = ctor.arguments[i]
+      result.write_string(escape_reserved(to_snake_case(arg.name)))
+      result.write_string(" : ")
+      result.write_string(idl_type_to_moonbit_with_conversion(arg.idl_type, parent_types, parent_alias))
+    }
+
+    result.write_string(") -> ")
+    result.write_string(iface_name)
+    result.write_string(" =\n")
+    result.write_string("  #| (")
+    for i = 0; i < arg_count; i = i + 1 {
+      if i > 0 {
+        result.write_string(", ")
+      }
+      result.write_string(escape_reserved(to_snake_case(ctor.arguments[i].name)))
+    }
+    result.write_string(") => new ")
+    result.write_string(iface_name)
+    result.write_string("(")
+    for i = 0; i < arg_count; i = i + 1 {
+      if i > 0 {
+        result.write_string(", ")
+      }
+      result.write_string(escape_reserved(to_snake_case(ctor.arguments[i].name)))
+    }
+    result.write_string(")\n\n")
+  }
+
+  result.to_string()
+}
+
+///|
+fn gen_const_with_conversion(
+  c : ConstDef,
+  iface_name : String,
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  let result = StringBuilder::new()
+  let moonbit_type = idl_type_to_moonbit_with_conversion(c.idl_type, parent_types, parent_alias)
+
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface_name)
+  result.write_string("::get_")
+  result.write_string(to_snake_case(c.name))
+  result.write_string("() -> ")
+  result.write_string(moonbit_type)
+  result.write_string(" =\n")
+  result.write_string("  #| () => ")
+  result.write_string(iface_name)
+  result.write_string(".")
+  result.write_string(c.name)
+  result.write_string("\n\n")
+
+  result.to_string()
+}
+
+///|
+/// IDL 型を MoonBit 型に変換（親パッケージ型参照付き）
+fn idl_type_to_moonbit_with_conversion(
+  idl_type : IdlType,
+  parent_types : Array[String],
+  parent_alias : String,
+) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        "boolean" => "Bool"
+        "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" => "Int"
+        "long long" | "unsigned long long" => "Int64"
+        "float" | "unrestricted float" | "double" | "unrestricted double" => "Double"
+        _ => convert_type_reference("JsValue", parent_types, parent_alias)
+      }
+    String => "String"
+    Void => "Unit"
+    Nullable(inner) => {
+      let inner_type = idl_type_to_moonbit_with_conversion(inner, parent_types, parent_alias)
+      if str_ends_with_question_char(inner_type) {
+        inner_type
+      } else {
+        inner_type + "?"
+      }
+    }
+    Named(name) => {
+      let first_char = get_str_first_char_local(name)
+      if first_char >= 'a' && first_char <= 'z' {
+        convert_type_reference("JsValue", parent_types, parent_alias)
+      } else {
+        convert_type_reference(name, parent_types, parent_alias)
+      }
+    }
+    Sequence(inner) => {
+      let inner_type = idl_type_to_moonbit_with_conversion(inner, parent_types, parent_alias)
+      "Array[" + inner_type + "]"
+    }
+    Promise(inner) => {
+      let inner_type = idl_type_to_moonbit_with_conversion(inner, parent_types, parent_alias)
+      convert_type_reference("Promise", parent_types, parent_alias) + "[" + inner_type + "]"
+    }
+    Union(_) => convert_type_reference("JsValue", parent_types, parent_alias)
+    Any => convert_type_reference("JsValue", parent_types, parent_alias)
+  }
+}
+
+///|
+fn str_ends_with_question_char(s : String) -> Bool {
+  let mut last_char = ' '
+  for c in s {
+    last_char = c
+  }
+  last_char == '?'
+}
+
+///|
+fn get_str_first_char_local(s : String) -> Char {
+  for c in s {
+    return c
+  }
+  ' '
+}
+
+///|
+/// サブパッケージ用の shared.mbt を生成（共有型を含む）
+pub fn gen_sub_package_shared_types(
+  external_types : Array[String],
+  cross_spec_types : Array[String],
+  all_definitions : Array[Definition],
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string("// Shared types for websys (sub-packages mode)\n")
+  result.write_string("// Generated by webidl-bindgen\n\n")
+
+  // JsValue type
+  result.write_string("/// Generic JavaScript value\n")
+  result.write_string("pub type JsValue\n\n")
+
+  // undefined helper
+  result.write_string("/// Return undefined\n")
+  result.write_string("pub extern \"js\" fn JsValue::undefined() -> JsValue =\n")
+  result.write_string("  #| () => undefined\n\n")
+
+  // null helper
+  result.write_string("/// Return null\n")
+  result.write_string("pub extern \"js\" fn JsValue::null() -> JsValue =\n")
+  result.write_string("  #| () => null\n\n")
+
+  // from_string helper
+  result.write_string("/// Create JsValue from String\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_string(s : String) -> JsValue =\n")
+  result.write_string("  #| (s) => s\n\n")
+
+  // from_int helper
+  result.write_string("/// Create JsValue from Int\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_int(i : Int) -> JsValue =\n")
+  result.write_string("  #| (i) => i\n\n")
+
+  // from_double helper
+  result.write_string("/// Create JsValue from Double\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_double(d : Double) -> JsValue =\n")
+  result.write_string("  #| (d) => d\n\n")
+
+  // from_bool helper
+  result.write_string("/// Create JsValue from Bool\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_bool(b : Bool) -> JsValue =\n")
+  result.write_string("  #| (b) => b\n\n")
+
+  // Promise type
+  result.write_string("/// JavaScript Promise type\n")
+  result.write_string("pub type Promise[T]\n\n")
+
+  // External types
+  if external_types.length() > 0 {
+    result.write_string("// External types (referenced but not defined in WebIDL specs)\n")
+    for ext_type in external_types {
+      result.write_string("pub type ")
+      result.write_string(ext_type)
+      result.write_string("\n")
+    }
+    result.write_string("\n")
+  }
+
+  // Cross-spec types (types referenced by multiple specs)
+  if cross_spec_types.length() > 0 {
+    result.write_string("// Cross-spec types (referenced by multiple specs)\n")
+    for type_name in cross_spec_types {
+      // Find the definition for this type
+      for def in all_definitions {
+        let def_name = get_definition_name(def)
+        if def_name == type_name {
+          match def {
+            Interface(iface) => {
+              result.write_string("/// ")
+              result.write_string(iface.name)
+              result.write_string(" interface (shared)\n")
+              result.write_string("pub type ")
+              result.write_string(iface.name)
+              result.write_string("\n\n")
+            }
+            Typedef(t) => {
+              // For cross-spec typedefs, only generate opaque type (full definition would need dependencies)
+              result.write_string("/// ")
+              result.write_string(t.name)
+              result.write_string(" typedef (shared, opaque)\n")
+              result.write_string("pub type ")
+              result.write_string(t.name)
+              result.write_string("\n\n")
+            }
+            Enum(e) => {
+              result.write_string(gen_enum(e))
+              result.write_string("\n")
+            }
+            CallbackInterface(cb) => {
+              result.write_string("/// ")
+              result.write_string(cb.name)
+              result.write_string(" callback interface (shared)\n")
+              result.write_string("pub type ")
+              result.write_string(cb.name)
+              result.write_string("\n\n")
+            }
+            Dictionary(d) => {
+              // For cross-spec dictionaries, only generate opaque type (full definition would need dependencies)
+              result.write_string("/// ")
+              result.write_string(d.name)
+              result.write_string(" dictionary (shared, opaque)\n")
+              result.write_string("pub type ")
+              result.write_string(d.name)
+              result.write_string("\n\n")
+            }
+            _ => ()
+          }
+          break
+        }
+      }
+    }
+  }
+
+  result.to_string()
+}
+
+///|
+/// Core shared types (JsValue, Promise, external types only)
+pub fn gen_core_shared_types(external_types : Array[String]) -> String {
+  let result = StringBuilder::new()
+  result.write_string("// Core shared types for websys\n")
+  result.write_string("// Generated by webidl-bindgen\n\n")
+
+  // JsValue type
+  result.write_string("/// Generic JavaScript value\n")
+  result.write_string("pub type JsValue\n\n")
+
+  // JsValue helpers
+  result.write_string("/// Return undefined\n")
+  result.write_string("pub extern \"js\" fn JsValue::undefined() -> JsValue =\n")
+  result.write_string("  #| () => undefined\n\n")
+
+  result.write_string("/// Return null\n")
+  result.write_string("pub extern \"js\" fn JsValue::null() -> JsValue =\n")
+  result.write_string("  #| () => null\n\n")
+
+  result.write_string("/// Create JsValue from String\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_string(s : String) -> JsValue =\n")
+  result.write_string("  #| (s) => s\n\n")
+
+  result.write_string("/// Create JsValue from Int\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_int(i : Int) -> JsValue =\n")
+  result.write_string("  #| (i) => i\n\n")
+
+  result.write_string("/// Create JsValue from Double\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_double(d : Double) -> JsValue =\n")
+  result.write_string("  #| (d) => d\n\n")
+
+  result.write_string("/// Create JsValue from Bool\n")
+  result.write_string("pub extern \"js\" fn JsValue::from_bool(b : Bool) -> JsValue =\n")
+  result.write_string("  #| (b) => b\n\n")
+
+  // Promise type
+  result.write_string("/// JavaScript Promise type\n")
+  result.write_string("pub type Promise[T]\n\n")
+
+  // External types
+  if external_types.length() > 0 {
+    result.write_string("// External types (referenced but not defined in WebIDL specs)\n")
+    for ext_type in external_types {
+      result.write_string("pub type ")
+      result.write_string(ext_type)
+      result.write_string("\n")
+    }
+    result.write_string("\n")
+  }
+
+  result.to_string()
+}
+
+///|
+/// Generate moon.pkg.json with imports
+pub fn gen_moon_pkg_json_with_imports(imports : Array[String]) -> String {
+  let result = StringBuilder::new()
+  result.write_string("{\n")
+  result.write_string("  \"import\": [\n")
+  for i, imp in imports {
+    result.write_string("    \"")
+    result.write_string(imp)
+    result.write_string("\"")
+    if i < imports.length() - 1 {
+      result.write_string(",")
+    }
+    result.write_string("\n")
+  }
+  result.write_string("  ],\n")
+  result.write_string("  \"supported-targets\": [\"js\"]\n")
+  result.write_string("}\n")
+  result.to_string()
+}
+
+///|
+/// Generate sub-package output with type alias mapping
+pub fn format_sub_package_output_v2(
+  group_name : String,
+  specs : Array[String],
+  definitions : Array[Definition],
+  global_enum_map : Array[(String, Array[String])],
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+
+  // Header
+  result.write_string("// Generated from WebIDL - DO NOT EDIT\n")
+  result.write_string("// Package: ")
+  result.write_string(group_name)
+  result.write_string("\n")
+  if specs.length() > 1 {
+    result.write_string("// Merged specs: ")
+    for i, s in specs {
+      if i > 0 {
+        result.write_string(", ")
+      }
+      result.write_string(s)
+    }
+    result.write_string("\n")
+  }
+  result.write_string("\n")
+
+  // Generate each definition
+  for def in definitions {
+    let code = gen_definition_with_aliases(def, global_enum_map, type_aliases)
+    if code.length() > 0 {
+      result.write_string(code)
+      result.write_string("\n")
+    }
+  }
+
+  result.to_string()
+}
+
+///|
+/// Generate a definition with type alias conversion
+fn gen_definition_with_aliases(
+  def : Definition,
+  global_enum_map : Array[(String, Array[String])],
+  type_aliases : Array[(String, String)],
+) -> String {
+  match def {
+    Interface(iface) => gen_interface_with_aliases(iface, global_enum_map, type_aliases)
+    Dictionary(d) => gen_dictionary_with_aliases(d, type_aliases)
+    Typedef(t) => gen_typedef_with_aliases(t, type_aliases)
+    Enum(e) => gen_enum(e)
+    CallbackInterface(cb) => gen_callback_with_aliases(cb, type_aliases)
+    InterfaceMixin(_) => ""
+    Partial(_) => ""
+    Includes(_) => ""
+  }
+}
+
+///|
+/// Deduplicate interface members: keep best constructor (most args), first operation/attribute per name
+fn deduplicate_interface_members(members : Array[InterfaceMember]) -> Array[InterfaceMember] {
+  let result : Array[InterfaceMember] = []
+  let mut best_ctor : ConstructorDef? = None
+  let mut best_ctor_arg_count = -1
+  let seen_op_names : Array[String] = []
+  let seen_attr_names : Array[String] = []
+
+  for mem in members {
+    match mem {
+      Constructor(ctor) => {
+        let arg_count = ctor.arguments.length()
+        if arg_count > best_ctor_arg_count {
+          best_ctor = Some(ctor)
+          best_ctor_arg_count = arg_count
+        }
+      }
+      Operation(op) => {
+        // Keep first operation with each name (use snake_case for comparison)
+        let snake_name = to_snake_case(op.name)
+        let mut name_seen = false
+        for name in seen_op_names {
+          if name == snake_name {
+            name_seen = true
+            break
+          }
+        }
+        if not(name_seen) && op.name != "" {
+          seen_op_names.push(snake_name)
+          result.push(mem)
+        }
+        // Skip operations with empty names (stringifier)
+      }
+      Attribute(attr) => {
+        // Keep first attribute with each name (use snake_case for comparison)
+        let snake_name = to_snake_case(attr.name)
+        let mut name_seen = false
+        for name in seen_attr_names {
+          if name == snake_name {
+            name_seen = true
+            break
+          }
+        }
+        if not(name_seen) {
+          seen_attr_names.push(snake_name)
+          result.push(mem)
+        }
+      }
+      _ => result.push(mem)
+    }
+  }
+
+  // Add the best constructor at the beginning
+  match best_ctor {
+    Some(ctor) => {
+      let new_result : Array[InterfaceMember] = [Constructor(ctor)]
+      for m in result {
+        new_result.push(m)
+      }
+      return new_result
+    }
+    None => ()
+  }
+
+  result
+}
+
+///|
+fn gen_interface_with_aliases(
+  iface : InterfaceDef,
+  global_enum_map : Array[(String, Array[String])],
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+
+  result.write_string("///|\n")
+  result.write_string("/// ")
+  result.write_string(iface.name)
+  result.write_string(" interface\n")
+  result.write_string("pub type ")
+  result.write_string(iface.name)
+  result.write_string("\n\n")
+
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface.name)
+  result.write_string("::to_js_value(self : ")
+  result.write_string(iface.name)
+  result.write_string(") -> ")
+  result.write_string(resolve_type_alias("JsValue", type_aliases))
+  result.write_string(" =\n")
+  result.write_string("  #| (self) => self\n\n")
+
+  // Deduplicate members: keep best constructor, first operation per name
+  let deduped = deduplicate_interface_members(iface.members)
+
+  for mem in deduped {
+    let mem_code = gen_member_with_aliases(mem, iface.name, global_enum_map, type_aliases)
+    if mem_code.length() > 0 {
+      result.write_string(mem_code)
+    }
+  }
+
+  result.to_string()
+}
+
+///|
+fn gen_member_with_aliases(
+  mem : InterfaceMember,
+  iface_name : String,
+  global_enum_map : Array[(String, Array[String])],
+  type_aliases : Array[(String, String)],
+) -> String {
+  match mem {
+    Attribute(attr) => gen_attribute_with_aliases(attr, iface_name, type_aliases)
+    Operation(op) => gen_operation_with_aliases(op, iface_name, global_enum_map, type_aliases)
+    Constructor(ctor) => gen_constructor_with_aliases(ctor, iface_name, type_aliases)
+    Const(c) => gen_const_with_aliases(c, iface_name, type_aliases)
+    Maplike(_) => ""
+    Setlike(_) => ""
+  }
+}
+
+///|
+fn gen_attribute_with_aliases(
+  attr : AttributeDef,
+  iface_name : String,
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+  let moonbit_type = idl_type_to_moonbit_with_aliases(attr.idl_type, type_aliases)
+
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface_name)
+  result.write_string("::get_")
+  result.write_string(to_snake_case(attr.name))
+  result.write_string("(self : ")
+  result.write_string(iface_name)
+  result.write_string(") -> ")
+  result.write_string(moonbit_type)
+  result.write_string(" =\n")
+  result.write_string("  #| (self) => self.")
+  result.write_string(attr.name)
+  result.write_string("\n\n")
+
+  if not(attr.is_readonly) {
+    result.write_string("pub extern \"js\" fn ")
+    result.write_string(iface_name)
+    result.write_string("::set_")
+    result.write_string(to_snake_case(attr.name))
+    result.write_string("(self : ")
+    result.write_string(iface_name)
+    result.write_string(", value : ")
+    result.write_string(moonbit_type)
+    result.write_string(") -> Unit =\n")
+    result.write_string("  #| (self, value) => { self.")
+    result.write_string(attr.name)
+    result.write_string(" = value }\n\n")
+  }
+
+  result.to_string()
+}
+
+///|
+fn gen_operation_with_aliases(
+  op : OperationDef,
+  iface_name : String,
+  global_enum_map : Array[(String, Array[String])],
+  type_aliases : Array[(String, String)],
+) -> String {
+  // Skip operations with empty names (e.g., stringifier)
+  if op.name == "" {
+    return ""
+  }
+
+  let result = StringBuilder::new()
+
+  let is_static = match op.special {
+    Some("static") => true
+    _ => false
+  }
+
+  let return_type = idl_type_to_moonbit_with_aliases(op.return_type, type_aliases)
+
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface_name)
+  result.write_string("::")
+  result.write_string(escape_reserved(to_snake_case(op.name)))
+  result.write_string("(")
+
+  if not(is_static) {
+    result.write_string("self : ")
+    result.write_string(iface_name)
+    if op.arguments.length() > 0 {
+      result.write_string(", ")
+    }
+  }
+
+  for i, arg in op.arguments {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+    result.write_string(" : ")
+    result.write_string(idl_type_to_moonbit_with_aliases(arg.idl_type, type_aliases))
+  }
+
+  result.write_string(") -> ")
+  result.write_string(return_type)
+  result.write_string(" =\n")
+
+  result.write_string("  #| (")
+  if not(is_static) {
+    result.write_string("self")
+    if op.arguments.length() > 0 {
+      result.write_string(", ")
+    }
+  }
+  for i, arg in op.arguments {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+  }
+  result.write_string(") => ")
+
+  if is_static {
+    result.write_string(iface_name)
+    result.write_string(".")
+  } else {
+    result.write_string("self.")
+  }
+  result.write_string(op.name)
+  result.write_string("(")
+  for i, arg in op.arguments {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+  }
+  result.write_string(")\n\n")
+
+  result.to_string()
+}
+
+///|
+fn gen_constructor_with_aliases(
+  ctor : ConstructorDef,
+  iface_name : String,
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface_name)
+  result.write_string("::new(")
+
+  for i, arg in ctor.arguments {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+    result.write_string(" : ")
+    result.write_string(idl_type_to_moonbit_with_aliases(arg.idl_type, type_aliases))
+  }
+
+  result.write_string(") -> ")
+  result.write_string(iface_name)
+  result.write_string(" =\n")
+  result.write_string("  #| (")
+
+  for i, arg in ctor.arguments {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+  }
+
+  result.write_string(") => new ")
+  result.write_string(iface_name)
+  result.write_string("(")
+
+  for i, arg in ctor.arguments {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+  }
+
+  result.write_string(")\n\n")
+
+  result.to_string()
+}
+
+///|
+fn gen_const_with_aliases(
+  c : ConstDef,
+  iface_name : String,
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+  let moonbit_type = idl_type_to_moonbit_with_aliases(c.idl_type, type_aliases)
+
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface_name)
+  result.write_string("::get_")
+  result.write_string(to_snake_case(c.name))
+  result.write_string("() -> ")
+  result.write_string(moonbit_type)
+  result.write_string(" =\n")
+  result.write_string("  #| () => ")
+  result.write_string(iface_name)
+  result.write_string(".")
+  result.write_string(c.name)
+  result.write_string("\n\n")
+
+  result.to_string()
+}
+
+///|
+fn gen_dictionary_with_aliases(
+  d : DictionaryDef,
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+
+  result.write_string("///|\n")
+  result.write_string("/// ")
+  result.write_string(d.name)
+  result.write_string(" dictionary\n")
+  result.write_string("pub struct ")
+  result.write_string(d.name)
+  result.write_string(" {\n")
+
+  for mem in d.members {
+    result.write_string("  ")
+    result.write_string(escape_reserved(to_snake_case(mem.name)))
+    result.write_string(" : ")
+    let mem_type = idl_type_to_moonbit_with_aliases(mem.idl_type, type_aliases)
+    if mem.required {
+      result.write_string(mem_type)
+    } else {
+      result.write_string(mem_type)
+      result.write_string("?")
+    }
+    result.write_string("\n")
+  }
+
+  result.write_string("}\n\n")
+
+  result.to_string()
+}
+
+///|
+fn gen_typedef_with_aliases(
+  t : TypedefDef,
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+
+  result.write_string("///|\n")
+  result.write_string("/// ")
+  result.write_string(t.name)
+  result.write_string(" typedef\n")
+  result.write_string("pub type ")
+  result.write_string(t.name)
+  result.write_string(" = ")
+  result.write_string(idl_type_to_moonbit_with_aliases(t.idl_type, type_aliases))
+  result.write_string("\n\n")
+
+  result.to_string()
+}
+
+///|
+fn gen_callback_with_aliases(
+  cb : CallbackInterfaceDef,
+  type_aliases : Array[(String, String)],
+) -> String {
+  let result = StringBuilder::new()
+
+  result.write_string("///|\n")
+  result.write_string("/// ")
+  result.write_string(cb.name)
+  result.write_string(" callback\n")
+  result.write_string("pub type ")
+  result.write_string(cb.name)
+  result.write_string("\n\n")
+
+  result.to_string()
+}
+
+///|
+fn idl_type_to_moonbit_with_aliases(
+  idl_type : IdlType,
+  type_aliases : Array[(String, String)],
+) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        "boolean" => "Bool"
+        "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" => "Int"
+        "long long" | "unsigned long long" => "Int64"
+        "float" | "unrestricted float" | "double" | "unrestricted double" => "Double"
+        _ => resolve_type_alias("JsValue", type_aliases)
+      }
+    String => "String"
+    Void => "Unit"
+    Nullable(inner) => {
+      let inner_type = idl_type_to_moonbit_with_aliases(inner, type_aliases)
+      if ends_with_question_v2(inner_type) {
+        inner_type
+      } else {
+        inner_type + "?"
+      }
+    }
+    Named(name) => {
+      let first = get_first_char(name)
+      if first >= 'a' && first <= 'z' {
+        resolve_type_alias("JsValue", type_aliases)
+      } else {
+        resolve_type_alias(name, type_aliases)
+      }
+    }
+    Sequence(inner) => {
+      let inner_type = idl_type_to_moonbit_with_aliases(inner, type_aliases)
+      "Array[" + inner_type + "]"
+    }
+    Promise(inner) => {
+      let inner_type = idl_type_to_moonbit_with_aliases(inner, type_aliases)
+      resolve_type_alias("Promise", type_aliases) + "[" + inner_type + "]"
+    }
+    Union(_) => resolve_type_alias("JsValue", type_aliases)
+    Any => resolve_type_alias("JsValue", type_aliases)
+  }
+}
+
+///|
+fn resolve_type_alias(type_name : String, type_aliases : Array[(String, String)]) -> String {
+  for entry in type_aliases {
+    if entry.0 == type_name {
+      return entry.1 + "." + type_name
+    }
+  }
+  type_name
+}
+
+///|
+fn ends_with_question_v2(s : String) -> Bool {
+  let mut last = ' '
+  for c in s {
+    last = c
+  }
+  last == '?'
 }
