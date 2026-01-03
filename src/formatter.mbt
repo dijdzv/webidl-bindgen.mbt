@@ -860,6 +860,27 @@ pub fn gen_shared_types_with_externals(
   )
   result.write_string("  #| (s) => s\n\n")
 
+  // from_int helper
+  result.write_string("/// Create JsValue from Int\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::from_int(i : Int) -> JsValue =\n",
+  )
+  result.write_string("  #| (i) => i\n\n")
+
+  // from_double helper
+  result.write_string("/// Create JsValue from Double\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::from_double(d : Double) -> JsValue =\n",
+  )
+  result.write_string("  #| (d) => d\n\n")
+
+  // from_bool helper
+  result.write_string("/// Create JsValue from Bool\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::from_bool(b : Bool) -> JsValue =\n",
+  )
+  result.write_string("  #| (b) => b\n\n")
+
   // Promise type (WebIDL built-in)
   result.write_string("/// JavaScript Promise type\n")
   result.write_string("pub type Promise[T]\n\n")
