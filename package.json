@@ -3,14 +3,14 @@
     "version": "0.3.0",
     "description": "WebIDL to MoonBit binding generator",
     "bin": {
-        "webidl-bindgen.mbt": "./target/js/release/build/webidl-bindgen.js"
+        "webidl-bindgen.mbt": "./_build/js/release/build/webidl-bindgen.js"
     },
     "files": [
-        "target/js/release/build/webidl-bindgen.js"
+        "_build/js/release/build/webidl-bindgen.js"
     ],
     "scripts": {
         "build": "moon build --target js && bun run add-shebang",
-        "add-shebang": "echo '#!/usr/bin/env node' | cat - target/js/release/build/webidl-bindgen.js > temp && mv temp target/js/release/build/webidl-bindgen.js",
+        "add-shebang": "echo '#!/usr/bin/env node' | cat - _build/js/release/build/webidl-bindgen.js > temp && mv temp _build/js/release/build/webidl-bindgen.js",
         "prepublishOnly": "bun run build"
     },
     "keywords": [
