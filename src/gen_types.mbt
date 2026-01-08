@@ -1,6 +1,20 @@
 // Dictionary/Enum binding 生成ロジック
 
 ///|
+/// enum マップから値リストを取得（Dictionary 生成用）
+fn lookup_enum_values(
+  enum_map : Array[(String, Array[String])],
+  name : String,
+) -> Array[String]? {
+  for pair in enum_map {
+    if pair.0 == name {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
 /// WebIDL 型を MoonBit 型に変換（gen_interface.mbt と共通だが重複定義）
 fn type_to_moonbit(idl_type : IdlType) -> String {
   match idl_type {
@@ -22,9 +36,11 @@ fn type_to_moonbit(idl_type : IdlType) -> String {
     Void => "Unit"
     Nullable(inner) => {
       let inner_type = type_to_moonbit(inner)
-      // 二重 nullable を防ぐ（既に ? で終わっている場合はそのまま）
+      // 二重 nullable の場合は Nullable[T] に変換
       if ends_with_question(inner_type) {
-        inner_type
+        // T? が来た → Nullable[T] に変換
+        let base_type = remove_trailing_question(inner_type)
+        "Nullable[" + base_type + "]"
       } else {
         inner_type + "?"
       }
@@ -62,6 +78,21 @@ fn ends_with_question(s : String) -> Bool {
 }
 
 ///|
+/// 文字列の末尾の ? を削除
+fn remove_trailing_question(s : String) -> String {
+  let result = StringBuilder::new()
+  let chars : Array[Char] = []
+  for c in s {
+    chars.push(c)
+  }
+  // 最後の文字を除いて追加
+  for i = 0; i < chars.length() - 1; i = i + 1 {
+    result.write_char(chars[i])
+  }
+  result.to_string()
+}
+
+///|
 /// 文字列の最初の文字を取得
 fn get_first_char_types(s : String) -> Char {
   for c in s {
@@ -72,7 +103,7 @@ fn get_first_char_types(s : String) -> Char {
 
 ///|
 /// Dictionary から MoonBit struct を生成
-pub fn gen_dictionary(dict : DictionaryDef) -> String {
+pub fn gen_dictionary(dict : DictionaryDef, enum_map : Array[(String, Array[String])]) -> String {
   let mut result = ""
 
   // セグメント分割マーカー（大きなファイルでの65535行制限回避）
@@ -92,12 +123,18 @@ pub fn gen_dictionary(dict : DictionaryDef) -> String {
     result = result + field_name_to_moonbit(mem.name)
     result = result + " : "
 
+    let moonbit_type = type_to_moonbit(mem.idl_type)
     // オプショナルフィールド対応
     if not(mem.required) {
-      result = result + type_to_moonbit(mem.idl_type)
-      result = result + "?"
+      // 二重 nullable の場合（型がすでに ? で終わる）は Nullable[T] に変換
+      if ends_with_question(moonbit_type) {
+        let base_type = remove_trailing_question(moonbit_type)
+        result = result + "Nullable[" + base_type + "]"
+      } else {
+        result = result + moonbit_type + "?"
+      }
     } else {
-      result = result + type_to_moonbit(mem.idl_type)
+      result = result + moonbit_type
     }
     result = result + "\n"
   }
@@ -121,7 +158,13 @@ pub fn gen_dictionary(dict : DictionaryDef) -> String {
     result = result + field_name_to_moonbit(mem.name)
     result = result + ": "
     if not(mem.required) {
-      result = result + "None"
+      // Nullable[T] 型の場合は Nullable::Undefined を使用
+      let moonbit_type = type_to_moonbit(mem.idl_type)
+      if ends_with_question(moonbit_type) {
+        result = result + "Nullable::Undefined"
+      } else {
+        result = result + "None"
+      }
     } else {
       // デフォルト値があれば使用
       match mem.default_value {
@@ -166,9 +209,22 @@ pub fn gen_dictionary(dict : DictionaryDef) -> String {
     result = result + "  #|   "
     // JS側では元の名前を使用
     result = result + mem.name
-    result = result + ": self."
-    // MoonBit側では変換後の名前
-    result = result + moonbit_name
+    result = result + ": "
+
+    // Nullable[T] 型のフィールドかチェック
+    let moonbit_type = type_to_moonbit(mem.idl_type)
+    let is_nullable_type = not(mem.required) && ends_with_question(moonbit_type)
+
+    if is_nullable_type {
+      // Nullable[T] フィールドの場合は特別な JS 式を生成
+      let value_expr = gen_nullable_type_field_expr(mem.idl_type, moonbit_name, enum_map)
+      result = result + value_expr
+    } else {
+      // 通常のフィールド（enum 変換を含む）
+      let value_expr = gen_field_value_expr(mem.idl_type, moonbit_name, enum_map)
+      result = result + value_expr
+    }
+
     if idx < members_len - 1 {
       result = result + ","
     }
@@ -177,6 +233,154 @@ pub fn gen_dictionary(dict : DictionaryDef) -> String {
   }
   result = result + "  #| })\n\n"
   result
+}
+
+///|
+/// フィールドの値式を生成（enum の場合は配列ルックアップ、Nullable は特別処理）
+fn gen_field_value_expr(
+  idl_type : IdlType,
+  field_name : String,
+  enum_map : Array[(String, Array[String])]
+) -> String {
+  match idl_type {
+    // 非 nullable enum フィールド
+    Named(type_name) =>
+      match lookup_enum_values(enum_map, type_name) {
+        Some(values) => gen_enum_lookup(field_name, values)
+        None => "self." + field_name
+      }
+    // nullable enum フィールド（単一 nullable）
+    Nullable(Named(type_name)) =>
+      match lookup_enum_values(enum_map, type_name) {
+        Some(values) => gen_nullable_enum_lookup(field_name, values)
+        None => "self." + field_name
+      }
+    // 二重 nullable（Nullable[T] 型）
+    Nullable(Nullable(inner)) => gen_nullable_field_expr(field_name, inner, enum_map)
+    // その他はそのまま
+    _ => "self." + field_name
+  }
+}
+
+///|
+/// Nullable[T] 型フィールドの JS 式を生成
+fn gen_nullable_field_expr(
+  field_name : String,
+  inner_type : IdlType,
+  enum_map : Array[(String, Array[String])]
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string("((() => { const v = self.")
+  result.write_string(field_name)
+  result.write_string("; if (v.$tag === 0) return undefined; if (v.$tag === 1) return null; return ")
+
+  // 内部型が enum の場合は変換が必要
+  match inner_type {
+    Named(type_name) =>
+      match lookup_enum_values(enum_map, type_name) {
+        Some(values) => {
+          result.write_string("[")
+          for i = 0; i < values.length(); i = i + 1 {
+            if i > 0 {
+              result.write_string(", ")
+            }
+            result.write_string("'")
+            result.write_string(values[i])
+            result.write_string("'")
+          }
+          result.write_string("][v.$0]")
+        }
+        None => result.write_string("v.$0")
+      }
+    _ => result.write_string("v.$0")
+  }
+
+  result.write_string("; })())")
+  result.to_string()
+}
+
+///|
+/// Nullable[T] 型フィールド用の JS 式を生成（optional + nullable の組み合わせ）
+/// IdlType が Nullable(inner) で、かつ required=false のフィールド用
+fn gen_nullable_type_field_expr(
+  idl_type : IdlType,
+  field_name : String,
+  enum_map : Array[(String, Array[String])]
+) -> String {
+  // IdlType は Nullable(inner) であるはず
+  let inner_type = match idl_type {
+    Nullable(inner) => inner
+    _ => idl_type // フォールバック
+  }
+
+  let result = StringBuilder::new()
+  result.write_string("((() => { const v = self.")
+  result.write_string(field_name)
+  result.write_string("; if (v.$tag === 0) return undefined; if (v.$tag === 1) return null; ")
+
+  // 内部型が enum の場合は変換が必要
+  match inner_type {
+    Named(type_name) =>
+      match lookup_enum_values(enum_map, type_name) {
+        Some(values) => {
+          result.write_string("return [")
+          for i = 0; i < values.length(); i = i + 1 {
+            if i > 0 {
+              result.write_string(", ")
+            }
+            result.write_string("'")
+            result.write_string(values[i])
+            result.write_string("'")
+          }
+          result.write_string("][v.$0];")
+        }
+        None => result.write_string("return v.$0;")
+      }
+    _ => result.write_string("return v.$0;")
+  }
+
+  result.write_string(" })())")
+  result.to_string()
+}
+
+///|
+/// 非 nullable enum 用の配列ルックアップ式を生成
+fn gen_enum_lookup(field_name : String, values : Array[String]) -> String {
+  let result = StringBuilder::new()
+  result.write_string("[")
+  for i = 0; i < values.length(); i = i + 1 {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string("'")
+    result.write_string(values[i])
+    result.write_string("'")
+  }
+  result.write_string("][self.")
+  result.write_string(field_name)
+  result.write_string("]")
+  result.to_string()
+}
+
+///|
+/// nullable enum 用の配列ルックアップ式を生成（null チェック付き）
+fn gen_nullable_enum_lookup(field_name : String, values : Array[String]) -> String {
+  let result = StringBuilder::new()
+  result.write_string("(self.")
+  result.write_string(field_name)
+  result.write_string(" != null ? [")
+  for i = 0; i < values.length(); i = i + 1 {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string("'")
+    result.write_string(values[i])
+    result.write_string("'")
+  }
+  result.write_string("][self.")
+  result.write_string(field_name)
+  result.write_string("] : null)")
+  result.to_string()
 }
 
 ///|
@@ -403,5 +607,109 @@ pub fn gen_typedef(typedef_def : TypedefDef) -> String {
   result = result + " = "
   result = result + type_to_moonbit(typedef_def.idl_type)
   result = result + "\n"
+
+  // Union 型の場合、ファクトリ関数を追加
+  match typedef_def.idl_type {
+    Union(members) => {
+      result = result + "\n"
+      for mem in members {
+        let factory = gen_union_factory(typedef_def.name, mem)
+        if factory != "" {
+          result = result + factory
+        }
+      }
+    }
+    _ => ()
+  }
+
   result
+}
+
+///|
+/// Union 型のファクトリ関数を生成
+fn gen_union_factory(union_name : String, member_type : IdlType) -> String {
+  let moonbit_type = type_to_moonbit(member_type)
+  let factory_name = get_factory_name(member_type)
+
+  // JsValue 型はスキップ（Any, Union 内 Union などの場合）
+  if moonbit_type == "JsValue" || factory_name == "" {
+    return ""
+  }
+
+  let result = StringBuilder::new()
+  result.write_string("/// Create ")
+  result.write_string(union_name)
+  result.write_string(" from ")
+  result.write_string(moonbit_type)
+  result.write_string("\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(union_name)
+  result.write_string("::from_")
+  result.write_string(factory_name)
+  result.write_string("(v : ")
+  result.write_string(moonbit_type)
+  result.write_string(") -> ")
+  result.write_string(union_name)
+  result.write_string(" =\n  #| (v) => v\n\n")
+  result.to_string()
+}
+
+///|
+/// IdlType からファクトリ関数名を取得
+fn get_factory_name(idl_type : IdlType) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        "DOMString" | "USVString" | "ByteString" => "string"
+        "boolean" => "bool"
+        "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" =>
+          "int"
+        "long long" | "unsigned long long" => "int64"
+        "float" | "unrestricted float" | "double" | "unrestricted double" =>
+          "double"
+        _ => ""
+      }
+    String => "string"
+    Named(name) => to_snake_case_factory(name)
+    Sequence(inner) => {
+      let inner_name = get_factory_name(inner)
+      if inner_name != "" {
+        "array_of_" + inner_name
+      } else {
+        "array"
+      }
+    }
+    Nullable(inner) => {
+      let inner_name = get_factory_name(inner)
+      if inner_name != "" {
+        "nullable_" + inner_name
+      } else {
+        ""
+      }
+    }
+    // Void, Any, Promise, Union はファクトリを生成しない
+    _ => ""
+  }
+}
+
+///|
+/// 型名を snake_case に変換（ファクトリ関数名用）
+fn to_snake_case_factory(name : String) -> String {
+  let result = StringBuilder::new()
+  let mut first = true
+  for c in name {
+    if c >= 'A' && c <= 'Z' {
+      if not(first) {
+        result.write_char('_')
+      }
+      // 大文字を小文字に変換
+      let lower_code = c.to_int() + 32
+      let lower = lower_code.unsafe_to_char()
+      result.write_char(lower)
+    } else {
+      result.write_char(c)
+    }
+    first = false
+  }
+  result.to_string()
 }

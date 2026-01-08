@@ -44,6 +44,7 @@ struct CliArgs {
   specs : String // comma-separated list of specs
   all : Bool // load all specs
   per_spec : Bool // output each spec to separate file
+  shared_js : Bool // use shared JS functions (reduces bundle size)
   output : String
   help : Bool
 }
@@ -56,6 +57,7 @@ fn parse_args() -> CliArgs {
   let mut specs = ""
   let mut all = false
   let mut per_spec = false
+  let mut shared_js = false
   let mut output = "./"
   let mut help = false
   let mut i = 2 // Skip node and script path
@@ -82,6 +84,8 @@ fn parse_args() -> CliArgs {
       all = true
     } else if arg == "--per-spec" {
       per_spec = true
+    } else if arg == "--shared-js" {
+      shared_js = true
     } else if arg == "--output" || arg == "-o" {
       i = i + 1
       if i < argc {
@@ -93,7 +97,7 @@ fn parse_args() -> CliArgs {
     }
     i = i + 1
   }
-  { input, spec, specs, all, per_spec, output, help }
+  { input, spec, specs, all, per_spec, shared_js, output, help }
 }
 
 ///|
@@ -110,6 +114,9 @@ fn print_usage() -> Unit {
   println("  -a, --all               Load all specs from @webref/idl")
   println(
     "      --per-spec          Output each spec to separate file (with --all or --specs)",
+  )
+  println(
+    "      --shared-js         Use shared JS functions (reduces bundle size)",
   )
   println("  -o, --output <dir>      Output directory (default: ./)")
   println("  -h, --help              Show this help message")
@@ -351,7 +358,12 @@ async fn main {
     } else {
       "@webref/idl (" + args.specs + ")"
     }
-    let output_code = format_output(source_name, all_definitions)
+    let output_code = if args.shared_js {
+      println("Using shared JS functions mode...")
+      format_output_with_shared_js(source_name, all_definitions)
+    } else {
+      format_output(source_name, all_definitions)
+    }
 
     // Write output file
     let basename = if args.all { "websys" } else { "bindings" }
@@ -407,7 +419,12 @@ async fn main {
 
   // Generate output
   println("Generating MoonBit code...")
-  let output_code = format_output(source_file, definitions)
+  let output_code = if args.shared_js {
+    println("Using shared JS functions mode...")
+    format_output_with_shared_js(source_file, definitions)
+  } else {
+    format_output(source_file, definitions)
+  }
 
   // Write output file
   let output_file = path_join(args.output, basename + ".mbt")
