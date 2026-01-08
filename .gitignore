@@ -1,6 +1,6 @@
 # MoonBit
-target/
 .mooncakes/
+_build/
 
 # Node.js
 node_modules/
