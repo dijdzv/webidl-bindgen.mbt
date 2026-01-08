@@ -601,17 +601,22 @@ pub fn gen_typedef(typedef_def : TypedefDef) -> String {
   result = result + typedef_def.name
   result = result + " typedef\n"
 
-  // type alias 定義
-  result = result + "pub type "
-  result = result + typedef_def.name
-  result = result + " = "
-  result = result + type_to_moonbit(typedef_def.idl_type)
-  result = result + "\n"
-
-  // Union 型の場合、ファクトリ関数を追加
+  // Union 型の場合は opaque 型として定義（型安全なファクトリ関数のため）
   match typedef_def.idl_type {
     Union(members) => {
-      result = result + "\n"
+      // Opaque 型定義（JsValue エイリアスではない独立した型）
+      result = result + "pub type "
+      result = result + typedef_def.name
+      result = result + "\n\n"
+
+      // to_js_value メソッド（JS に渡すため）
+      result = result + "pub extern \"js\" fn "
+      result = result + typedef_def.name
+      result = result + "::to_js_value(self : "
+      result = result + typedef_def.name
+      result = result + ") -> JsValue =\n  #| (self) => self\n\n"
+
+      // ファクトリ関数（各メンバー型から Union 型を作成）
       for mem in members {
         let factory = gen_union_factory(typedef_def.name, mem)
         if factory != "" {
@@ -619,7 +624,14 @@ pub fn gen_typedef(typedef_def : TypedefDef) -> String {
         }
       }
     }
-    _ => ()
+    _ => {
+      // 非 Union 型は従来通り type alias
+      result = result + "pub type "
+      result = result + typedef_def.name
+      result = result + " = "
+      result = result + type_to_moonbit(typedef_def.idl_type)
+      result = result + "\n"
+    }
   }
 
   result
