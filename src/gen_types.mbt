@@ -103,7 +103,11 @@ fn get_first_char_types(s : String) -> Char {
 
 ///|
 /// Dictionary から MoonBit struct を生成
-pub fn gen_dictionary(dict : DictionaryDef, enum_map : Array[(String, Array[String])]) -> String {
+pub fn gen_dictionary(
+  dict : DictionaryDef,
+  enum_map : Array[(String, Array[String])],
+  union_set : Array[String],
+) -> String {
   let mut result = ""
 
   // セグメント分割マーカー（大きなファイルでの65535行制限回避）
@@ -217,11 +221,15 @@ pub fn gen_dictionary(dict : DictionaryDef, enum_map : Array[(String, Array[Stri
 
     if is_nullable_type {
       // Nullable[T] フィールドの場合は特別な JS 式を生成
-      let value_expr = gen_nullable_type_field_expr(mem.idl_type, moonbit_name, enum_map)
+      let value_expr = gen_nullable_type_field_expr(
+        mem.idl_type, moonbit_name, enum_map, union_set,
+      )
       result = result + value_expr
     } else {
       // 通常のフィールド（enum 変換を含む）
-      let value_expr = gen_field_value_expr(mem.idl_type, moonbit_name, enum_map)
+      let value_expr = gen_field_value_expr(
+        mem.idl_type, moonbit_name, enum_map, union_set,
+      )
       result = result + value_expr
     }
 
@@ -236,30 +244,67 @@ pub fn gen_dictionary(dict : DictionaryDef, enum_map : Array[(String, Array[Stri
 }
 
 ///|
-/// フィールドの値式を生成（enum の場合は配列ルックアップ、Nullable は特別処理）
+/// フィールドの値式を生成（enum の場合は配列ルックアップ、Union は .to_js_value()）
 fn gen_field_value_expr(
   idl_type : IdlType,
   field_name : String,
-  enum_map : Array[(String, Array[String])]
+  enum_map : Array[(String, Array[String])],
+  union_set : Array[String],
 ) -> String {
   match idl_type {
-    // 非 nullable enum フィールド
+    // 非 nullable Named フィールド（enum または Union）
     Named(type_name) =>
       match lookup_enum_values(enum_map, type_name) {
         Some(values) => gen_enum_lookup(field_name, values)
-        None => "self." + field_name
+        None =>
+          // Union 型の場合は .to_js_value() を呼ぶ
+          if is_in_union_set(union_set, type_name) {
+            "self." + field_name + ".to_js_value()"
+          } else {
+            "self." + field_name
+          }
       }
-    // nullable enum フィールド（単一 nullable）
+    // nullable Named フィールド（enum または Union）
     Nullable(Named(type_name)) =>
       match lookup_enum_values(enum_map, type_name) {
         Some(values) => gen_nullable_enum_lookup(field_name, values)
-        None => "self." + field_name
+        None =>
+          // Nullable Union 型の場合は特別処理
+          if is_in_union_set(union_set, type_name) {
+            gen_nullable_union_expr(field_name)
+          } else {
+            "self." + field_name
+          }
       }
     // 二重 nullable（Nullable[T] 型）
-    Nullable(Nullable(inner)) => gen_nullable_field_expr(field_name, inner, enum_map)
+    Nullable(Nullable(inner)) =>
+      gen_nullable_field_expr(field_name, inner, enum_map, union_set)
     // その他はそのまま
     _ => "self." + field_name
   }
+}
+
+///|
+/// Union 型セットに含まれるかを判定
+fn is_in_union_set(union_set : Array[String], type_name : String) -> Bool {
+  for name in union_set {
+    if name == type_name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Nullable Union 型用の JS 式を生成（null チェック + to_js_value）
+fn gen_nullable_union_expr(field_name : String) -> String {
+  let result = StringBuilder::new()
+  result.write_string("(self.")
+  result.write_string(field_name)
+  result.write_string(" != null ? self.")
+  result.write_string(field_name)
+  result.write_string(".to_js_value() : null)")
+  result.to_string()
 }
 
 ///|
@@ -267,14 +312,15 @@ fn gen_field_value_expr(
 fn gen_nullable_field_expr(
   field_name : String,
   inner_type : IdlType,
-  enum_map : Array[(String, Array[String])]
+  enum_map : Array[(String, Array[String])],
+  union_set : Array[String],
 ) -> String {
   let result = StringBuilder::new()
   result.write_string("((() => { const v = self.")
   result.write_string(field_name)
   result.write_string("; if (v.$tag === 0) return undefined; if (v.$tag === 1) return null; return ")
 
-  // 内部型が enum の場合は変換が必要
+  // 内部型が enum または Union の場合は変換が必要
   match inner_type {
     Named(type_name) =>
       match lookup_enum_values(enum_map, type_name) {
@@ -290,7 +336,13 @@ fn gen_nullable_field_expr(
           }
           result.write_string("][v.$0]")
         }
-        None => result.write_string("v.$0")
+        None =>
+          // Union 型の場合は .to_js_value() を呼ぶ
+          if is_in_union_set(union_set, type_name) {
+            result.write_string("v.$0.to_js_value()")
+          } else {
+            result.write_string("v.$0")
+          }
       }
     _ => result.write_string("v.$0")
   }
@@ -305,7 +357,8 @@ fn gen_nullable_field_expr(
 fn gen_nullable_type_field_expr(
   idl_type : IdlType,
   field_name : String,
-  enum_map : Array[(String, Array[String])]
+  enum_map : Array[(String, Array[String])],
+  union_set : Array[String],
 ) -> String {
   // IdlType は Nullable(inner) であるはず
   let inner_type = match idl_type {
@@ -318,7 +371,7 @@ fn gen_nullable_type_field_expr(
   result.write_string(field_name)
   result.write_string("; if (v.$tag === 0) return undefined; if (v.$tag === 1) return null; ")
 
-  // 内部型が enum の場合は変換が必要
+  // 内部型が enum または Union の場合は変換が必要
   match inner_type {
     Named(type_name) =>
       match lookup_enum_values(enum_map, type_name) {
@@ -334,7 +387,13 @@ fn gen_nullable_type_field_expr(
           }
           result.write_string("][v.$0];")
         }
-        None => result.write_string("return v.$0;")
+        None =>
+          // Union 型の場合は .to_js_value() を呼ぶ
+          if is_in_union_set(union_set, type_name) {
+            result.write_string("return v.$0.to_js_value();")
+          } else {
+            result.write_string("return v.$0;")
+          }
       }
     _ => result.write_string("return v.$0;")
   }

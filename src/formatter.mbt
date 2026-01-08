@@ -330,9 +330,16 @@ pub fn format_definitions(
 
   // enum マップを作成（enum 引数の文字列変換に使用）
   let enum_map : Array[(String, Array[String])] = []
+  // Union 型セットを作成（to_js で .to_js_value() 呼び出しに使用）
+  let union_set : Array[String] = []
   for def in definitions {
     match def {
       Enum(e) => enum_map.push((e.name, e.values))
+      Typedef(t) =>
+        match t.idl_type {
+          Union(_) => union_set.push(t.name)
+          _ => ()
+        }
       _ => ()
     }
   }
@@ -396,7 +403,7 @@ pub fn format_definitions(
     for def in definitions {
       match def {
         Dictionary(d) => {
-          result.write_string(gen_dictionary(d, enum_map))
+          result.write_string(gen_dictionary(d, enum_map, union_set))
           result.write_string("\n")
         }
         _ => ()
@@ -917,6 +924,7 @@ pub fn format_spec_output(
   spec_name : String,
   definitions : Array[Definition],
   global_enum_map : Array[(String, Array[String])],
+  global_union_set : Array[String],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -983,7 +991,7 @@ pub fn format_spec_output(
     for def in definitions {
       match def {
         Dictionary(d) => {
-          result.write_string(gen_dictionary(d, global_enum_map))
+          result.write_string(gen_dictionary(d, global_enum_map, global_union_set))
           result.write_string("\n")
         }
         _ => ()
@@ -1409,302 +1417,5 @@ fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
 
   // JS実装（MoonBit関数はそのままJS関数として使える）
   result.write_string("  #| (handler) => handler\n\n")
-  result.to_string()
-}
-
-///|
-/// Format output with shared JS functions (reduces JS bundle size)
-pub fn format_output_with_shared_js(
-  source_file : String,
-  definitions : Array[Definition],
-) -> String {
-  // Use the standard merge (includes inheritance resolution)
-  let merged = merge_definitions(definitions)
-
-  // Collect all interfaces for inheritance lookup
-  let all_interfaces : Array[(String, InterfaceDef)] = []
-  for def in merged {
-    match def {
-      Interface(iface) => all_interfaces.push((iface.name, iface))
-      _ => ()
-    }
-  }
-
-  // Collect base interfaces
-  let base_interfaces = collect_base_interfaces(merged)
-
-  // Format with shared JS
-  let code = format_definitions_with_shared_js(
-    source_file, merged, base_interfaces, all_interfaces,
-  )
-  let code = normalize_indent(code)
-  let code = normalize_blank_lines(code)
-  code
-}
-
-///|
-/// Format definitions with shared JS functions
-fn format_definitions_with_shared_js(
-  source_file : String,
-  definitions : Array[Definition],
-  base_interfaces : Array[(String, InterfaceDef)],
-  all_interfaces : Array[(String, InterfaceDef)],
-) -> String {
-  let result = StringBuilder::new()
-
-  // Collect defined types
-  let defined_types = collect_defined_types(definitions)
-
-  // File header
-  result.write_string(gen_file_header_with_exclude(source_file, defined_types))
-
-  // External types
-  let undefined_types = collect_undefined_external_types(definitions)
-  if undefined_types.length() > 0 {
-    result.write_string(
-      "// Referenced external types (not defined in this WebIDL)\n",
-    )
-    for type_name in undefined_types {
-      result.write_string("pub type ")
-      result.write_string(type_name)
-      result.write_string("\n")
-    }
-    result.write_string("\n")
-  }
-
-  // Enum map
-  let enum_map : Array[(String, Array[String])] = []
-  for def in definitions {
-    match def {
-      Enum(e) => enum_map.push((e.name, e.values))
-      _ => ()
-    }
-  }
-
-  // Types section (enums, dictionaries, typedefs)
-  let mut has_types = false
-  for def in definitions {
-    match def {
-      Enum(_) | Dictionary(_) | Typedef(_) | CallbackInterface(_) => {
-        has_types = true
-        break
-      }
-      _ => ()
-    }
-  }
-  if has_types {
-    result.write_string(gen_section_comment("Types"))
-    for def in definitions {
-      match def {
-        Typedef(t) => {
-          result.write_string(gen_typedef(t))
-          result.write_string("\n")
-        }
-        _ => ()
-      }
-    }
-    for def in definitions {
-      match def {
-        Enum(e) => {
-          result.write_string(gen_enum(e))
-          result.write_string("\n")
-        }
-        _ => ()
-      }
-    }
-    for def in definitions {
-      match def {
-        CallbackInterface(cb) => {
-          result.write_string("/// ")
-          result.write_string(cb.name)
-          result.write_string(" callback interface\n")
-          result.write_string("pub type ")
-          result.write_string(cb.name)
-          result.write_string("\n\n")
-          if cb.arguments.length() > 0 {
-            result.write_string(gen_callback_from_fn(cb))
-          }
-        }
-        _ => ()
-      }
-    }
-    for def in definitions {
-      match def {
-        Dictionary(d) => {
-          result.write_string(gen_dictionary(d, enum_map))
-          result.write_string("\n")
-        }
-        _ => ()
-      }
-    }
-  }
-
-  // Shared JS functions section
-  if base_interfaces.length() > 0 {
-    result.write_string(gen_shared_js_functions(base_interfaces))
-  }
-
-  // Interfaces section
-  let mut has_interfaces = false
-  for def in definitions {
-    match def {
-      Interface(_) => {
-        has_interfaces = true
-        break
-      }
-      _ => ()
-    }
-  }
-  if has_interfaces {
-    result.write_string(gen_section_comment("Interfaces"))
-    for def in definitions {
-      match def {
-        Interface(iface) => {
-          result.write_string(
-            gen_interface_with_shared_js(iface, enum_map, all_interfaces),
-          )
-          result.write_string("\n")
-        }
-        _ => ()
-      }
-    }
-  }
-
-  result.to_string()
-}
-
-///|
-/// Generate interface with shared JS functions for inherited methods
-fn gen_interface_with_shared_js(
-  iface : InterfaceDef,
-  enum_map : Array[(String, Array[String])],
-  all_interfaces : Array[(String, InterfaceDef)],
-) -> String {
-  let result = StringBuilder::new()
-
-  // Get inheritance chain
-  let chain = get_inheritance_chain(iface, all_interfaces)
-
-  // Check if this interface itself is a base interface
-  let is_base = is_base_interface(iface.name)
-
-  // For base interfaces, generate normal binding
-  if is_base {
-    return gen_interface_binding(iface, enum_map)
-  }
-
-  // For derived interfaces, separate own vs inherited members
-  // Collect names of members inherited from base interfaces
-  let inherited_from_base : Array[String] = []
-  for parent_name in chain {
-    if is_base_interface(parent_name) {
-      for entry in all_interfaces {
-        if entry.0 == parent_name {
-          for mem in entry.1.members {
-            let mem_name = get_interface_member_name(mem)
-            if mem_name != "" && mem_name != "constructor" {
-              let mut already = false
-              for n in inherited_from_base {
-                if n == mem_name {
-                  already = true
-                  break
-                }
-              }
-              if not(already) {
-                inherited_from_base.push(mem_name)
-              }
-            }
-          }
-          break
-        }
-      }
-    }
-  }
-
-  // Generate type definition
-  result.write_string("///|\n/// ")
-  result.write_string(iface.name)
-  result.write_string(" interface\n")
-  result.write_string("pub type ")
-  result.write_string(iface.name)
-  result.write_string("\n\n")
-
-  // to_js_value method
-  result.write_string("pub extern \"js\" fn ")
-  result.write_string(iface.name)
-  result.write_string("::to_js_value(self : ")
-  result.write_string(iface.name)
-  result.write_string(") -> JsValue =\n")
-  result.write_string("  #| (self) => self\n\n")
-
-  // Generate own members (not inherited from base interfaces)
-  for mem in iface.members {
-    let mem_name = get_interface_member_name(mem)
-
-    // Check if inherited from a base interface
-    let mut is_from_base = false
-    for n in inherited_from_base {
-      if n == mem_name {
-        is_from_base = true
-        break
-      }
-    }
-
-    // If not from base, generate normal extern "js"
-    if not(is_from_base) || mem_name == "constructor" {
-      match mem {
-        Operation(op) => {
-          result.write_string(gen_operation(iface.name, op, enum_map))
-          result.write_string("\n")
-        }
-        Attribute(attr) => {
-          result.write_string(gen_attribute_getter(iface.name, attr))
-          result.write_string("\n")
-          if not(attr.is_readonly) {
-            let setter = gen_attribute_setter(iface.name, attr)
-            if setter != "" {
-              result.write_string(setter)
-              result.write_string("\n")
-            }
-          }
-        }
-        Const(c) => {
-          result.write_string(gen_const(iface.name, c))
-          result.write_string("\n")
-        }
-        Constructor(ctor) => {
-          result.write_string(gen_constructor(iface.name, ctor, enum_map))
-          result.write_string("\n")
-        }
-        Maplike(_) | Setlike(_) => {
-          // maplike/setlike are handled within gen_interface_binding
-          // Skip here as they are complex and need generated_methods tracking
-          ()
-        }
-      }
-    }
-  }
-
-  // Generate wrappers for inherited methods from base interfaces
-  // Track generated methods to avoid duplicates
-  let wrapper_generated : Array[String] = []
-  for parent_name in chain {
-    if is_base_interface(parent_name) {
-      for entry in all_interfaces {
-        if entry.0 == parent_name {
-          result.write_string(
-            gen_inherited_method_wrappers(
-              iface.name,
-              parent_name,
-              entry.1.members,
-              wrapper_generated,
-            ),
-          )
-          break
-        }
-      }
-    }
-  }
-
   result.to_string()
 }
