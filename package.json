@@ -1,6 +1,6 @@
 {
     "name": "webidl-bindgen.mbt",
-    "version": "0.3.2",
+    "version": "0.3.3",
     "description": "WebIDL to MoonBit binding generator",
     "bin": {
         "webidl-bindgen.mbt": "./_build/js/release/build/webidl-bindgen.js"
@@ -26,8 +26,8 @@
         "url": "https://github.com/dijdzv/webidl-bindgen.mbt.git"
     },
     "dependencies": {
-        "@webref/idl": "^3.70.1",
-        "webidl2": "^24.4.1"
+        "@webref/idl": "^3.70.2",
+        "webidl2": "^24.5.0"
     },
     "engines": {
         "node": ">=18"
