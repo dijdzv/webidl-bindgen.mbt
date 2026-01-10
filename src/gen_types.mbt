@@ -479,6 +479,8 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
   for value in enum_def.values {
     let variant = to_pascal_case(value)
     result = result + "    "
+    result = result + enum_def.name
+    result = result + "::"
     result = result + variant
     result = result + " => \""
     result = result + value
@@ -500,6 +502,8 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
     result = result + "    \""
     result = result + value
     result = result + "\" => Some("
+    result = result + enum_def.name
+    result = result + "::"
     result = result + variant
     result = result + ")\n"
   }
@@ -648,8 +652,44 @@ fn field_name_to_moonbit(name : String) -> String {
 }
 
 ///|
+/// MoonBit プリミティブ型名と衝突するかチェック
+fn is_primitive_type_name(name : String) -> Bool {
+  // MoonBit の組み込み型名
+  match name {
+    "String" | "Bool" | "Int" | "Int64" | "Double" | "Unit" | "Bytes" | "Array" | "Char" => true
+    _ => false
+  }
+}
+
+///|
 /// Typedef から MoonBit type alias を生成
-pub fn gen_typedef(typedef_def : TypedefDef) -> String {
+/// dictionary_names: Dictionary型の名前リスト（is_*/as_*の型チェックで使用）
+/// union_typedef_map: Union typedef名から構成要素へのマップ
+/// enum_names: enum型の名前リスト（instanceof -> typeof === 'string'）
+/// primitive_typedef_map: プリミティブtypedef名から解決後の型へのマップ
+/// callback_interface_names: callback interface型の名前リスト（instanceof -> typeof === 'function'）
+pub fn gen_typedef(
+  typedef_def : TypedefDef,
+  dictionary_names~ : Array[String] = [],
+  union_typedef_map~ : Array[(String, Array[IdlType])] = [],
+  enum_names~ : Array[String] = [],
+  primitive_typedef_map~ : Array[(String, IdlType)] = [],
+  callback_interface_names~ : Array[String] = [],
+) -> String {
+  // プリミティブ型名との衝突を避ける
+  if is_primitive_type_name(typedef_def.name) {
+    return ""
+  }
+
+  // 1メンバーの Union はスキップ（その型を直接使うべき）
+  match typedef_def.idl_type {
+    Union(members) =>
+      if members.length() == 1 {
+        return ""
+      }
+    _ => ()
+  }
+
   let mut result = ""
 
   // セグメント分割マーカー
@@ -680,6 +720,38 @@ pub fn gen_typedef(typedef_def : TypedefDef) -> String {
         let factory = gen_union_factory(typedef_def.name, mem)
         if factory != "" {
           result = result + factory
+        }
+      }
+
+      // is_* チェック関数（Union の中身を判定）
+      for mem in members {
+        let is_check = gen_union_is_check(
+          typedef_def.name,
+          mem,
+          dictionary_names,
+          union_typedef_map~,
+          enum_names~,
+          primitive_typedef_map~,
+          callback_interface_names~,
+        )
+        if is_check != "" {
+          result = result + is_check
+        }
+      }
+
+      // as_* 変換関数（Union から具体型を取得）
+      for mem in members {
+        let as_cast = gen_union_as_cast(
+          typedef_def.name,
+          mem,
+          dictionary_names,
+          union_typedef_map~,
+          enum_names~,
+          primitive_typedef_map~,
+          callback_interface_names~,
+        )
+        if as_cast != "" {
+          result = result + as_cast
         }
       }
     }
@@ -783,4 +855,202 @@ fn to_snake_case_factory(name : String) -> String {
     first = false
   }
   result.to_string()
+}
+
+///|
+/// Union 型の is_* チェック関数を生成
+fn gen_union_is_check(
+  union_name : String,
+  member_type : IdlType,
+  dictionary_names : Array[String],
+  union_typedef_map~ : Array[(String, Array[IdlType])] = [],
+  enum_names~ : Array[String] = [],
+  primitive_typedef_map~ : Array[(String, IdlType)] = [],
+  callback_interface_names~ : Array[String] = [],
+) -> String {
+  let moonbit_type = type_to_moonbit(member_type)
+  let factory_name = get_factory_name(member_type)
+  let js_check = get_js_type_check(member_type, dictionary_names, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~)
+
+  // JsValue 型やチェックできない型はスキップ
+  if moonbit_type == "JsValue" || factory_name == "" || js_check == "" {
+    return ""
+  }
+
+  let result = StringBuilder::new()
+  result.write_string("/// Check if this ")
+  result.write_string(union_name)
+  result.write_string(" is ")
+  result.write_string(moonbit_type)
+  result.write_string("\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(union_name)
+  result.write_string("::is_")
+  result.write_string(factory_name)
+  result.write_string("(self : ")
+  result.write_string(union_name)
+  result.write_string(") -> Bool =\n  #| (self) => ")
+  result.write_string(js_check)
+  result.write_string("\n\n")
+  result.to_string()
+}
+
+///|
+/// Union 型の as_* 変換関数を生成
+fn gen_union_as_cast(
+  union_name : String,
+  member_type : IdlType,
+  dictionary_names : Array[String],
+  union_typedef_map~ : Array[(String, Array[IdlType])] = [],
+  enum_names~ : Array[String] = [],
+  primitive_typedef_map~ : Array[(String, IdlType)] = [],
+  callback_interface_names~ : Array[String] = [],
+) -> String {
+  let moonbit_type = type_to_moonbit(member_type)
+  let factory_name = get_factory_name(member_type)
+  let js_check = get_js_type_check(member_type, dictionary_names, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~)
+
+  // JsValue 型やチェックできない型はスキップ
+  if moonbit_type == "JsValue" || factory_name == "" || js_check == "" {
+    return ""
+  }
+
+  let result = StringBuilder::new()
+  result.write_string("/// Try to get ")
+  result.write_string(union_name)
+  result.write_string(" as ")
+  result.write_string(moonbit_type)
+  result.write_string("\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(union_name)
+  result.write_string("::as_")
+  result.write_string(factory_name)
+  result.write_string("(self : ")
+  result.write_string(union_name)
+  result.write_string(") -> ")
+  result.write_string(moonbit_type)
+  result.write_string("? =\n  #| (self) => (")
+  result.write_string(js_check)
+  result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+  result.to_string()
+}
+
+///|
+/// IdlType から JS の型チェックコードを取得
+/// dictionary_names: Dictionary型の名前リスト（instanceofではなくtypeofを使う）
+/// union_typedef_map: Union typedef名から構成要素へのマップ
+/// enum_names: enum型の名前リスト（instanceof -> typeof === 'string'）
+/// primitive_typedef_map: プリミティブtypedef名から解決後の型へのマップ
+/// callback_interface_names: callback interface型の名前リスト（instanceof -> typeof === 'function'）
+fn get_js_type_check(
+  idl_type : IdlType,
+  dictionary_names : Array[String],
+  union_typedef_map~ : Array[(String, Array[IdlType])] = [],
+  enum_names~ : Array[String] = [],
+  primitive_typedef_map~ : Array[(String, IdlType)] = [],
+  callback_interface_names~ : Array[String] = [],
+) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        "DOMString" | "USVString" | "ByteString" => "typeof self === 'string'"
+        "boolean" => "typeof self === 'boolean'"
+        "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" |
+        "long long" | "unsigned long long" | "float" | "unrestricted float" |
+        "double" | "unrestricted double" => "typeof self === 'number'"
+        _ => ""
+      }
+    String => "typeof self === 'string'"
+    Named(name) => {
+      // 特殊な外部型を処理（WebIDL specs に定義がない型）
+      // CSSOMString は CSSOM で typedef DOMString CSSOMString として定義
+      if name == "CSSOMString" {
+        return "typeof self === 'string'"
+      }
+      // WindowProxy は HTML spec の特殊な型（window オブジェクトを表す）
+      // JS にコンストラクタがないので、window かどうかを typeof でチェック
+      if name == "WindowProxy" {
+        return "typeof self === 'object' && self !== null && self.window === self"
+      }
+      // callback interface型はJSでは関数なのでtypeof === 'function'を使う
+      for cb_name in callback_interface_names {
+        if cb_name == name {
+          return "typeof self === 'function'"
+        }
+      }
+      // enum型はJSでは文字列なのでtypeof === 'string'を使う
+      for enum_name in enum_names {
+        if enum_name == name {
+          return "typeof self === 'string'"
+        }
+      }
+      // プリミティブtypedefは解決後の型でチェック
+      for entry in primitive_typedef_map {
+        let (typedef_name, resolved_type) = entry
+        if typedef_name == name {
+          return get_js_type_check(
+            resolved_type,
+            dictionary_names,
+            union_typedef_map~,
+            enum_names~,
+            primitive_typedef_map~,
+            callback_interface_names~,
+          )
+        }
+      }
+      // Dictionary型はinstanceofが使えないのでtypeofでオブジェクトチェック
+      for dict_name in dictionary_names {
+        if dict_name == name {
+          return "typeof self === 'object' && self !== null"
+        }
+      }
+      // Union typedef はJSにクラスが存在しないので構成要素を展開
+      for entry in union_typedef_map {
+        let (typedef_name, members) = entry
+        if typedef_name == name {
+          // 構成要素それぞれのチェックを OR で結合
+          let checks : Array[String] = []
+          for mem in members {
+            let check = get_js_type_check(
+              mem,
+              dictionary_names,
+              union_typedef_map~,
+              enum_names~,
+              primitive_typedef_map~,
+              callback_interface_names~,
+            )
+            if check != "" {
+              checks.push(check)
+            }
+          }
+          if checks.length() > 0 {
+            return checks.iter().collect().join(" || ")
+          }
+          // チェックできない場合は常にtrue（型安全性を犠牲にする）
+          return "true"
+        }
+      }
+      // 通常のInterface型
+      "self instanceof " + name
+    }
+    Sequence(_) => "Array.isArray(self)"
+    Nullable(inner) => {
+      // null チェックは特殊: null または inner の型
+      let inner_check = get_js_type_check(
+        inner,
+        dictionary_names,
+        union_typedef_map~,
+        enum_names~,
+        primitive_typedef_map~,
+        callback_interface_names~,
+      )
+      if inner_check != "" {
+        "self === null || (" + inner_check + ")"
+      } else {
+        "self === null"
+      }
+    }
+    // Void, Any, Promise, Union はチェックできない
+    _ => ""
+  }
 }

@@ -238,6 +238,11 @@ fn convert_idl_type(js_type : JsValue) -> IdlType {
   if is_promise_type(js_type) {
     // Extract Promise inner type
     let inner_js_type = get_promise_inner_type(js_type)
+    // Check if inner type is undefined/void (returns null from JS)
+    let type_name = get_type_name(inner_js_type)
+    if type_name == "" || type_name == "undefined" || type_name == "void" {
+      return Promise(Void)
+    }
     let inner_type = convert_idl_type(inner_js_type)
     return Promise(inner_type)
   }

@@ -281,20 +281,72 @@ async fn main {
       let global_enum_map : Array[(String, Array[String])] = []
       // Build global union set (for Union type .to_js_value() calls)
       let global_union_set : Array[String] = []
+      // Build dictionary names list (for Union is_*/as_* type checks)
+      let dictionary_names : Array[String] = []
+      // Build union typedef map (for Union is_*/as_* type checks - avoiding instanceof on typedefs)
+      let union_typedef_map : Array[(String, Array[IdlType])] = []
+      // Build enum names list (for instanceof -> typeof === 'string')
+      let enum_names : Array[String] = []
+      // Build primitive typedef map (for instanceof -> typeof check based on resolved type)
+      let primitive_typedef_map : Array[(String, IdlType)] = []
+      // Build callback interface names list (for instanceof -> typeof === 'function')
+      let callback_interface_names : Array[String] = []
       for def in all_definitions {
         match def {
-          Enum(e) => global_enum_map.push((e.name, e.values))
+          Enum(e) => {
+            global_enum_map.push((e.name, e.values))
+            enum_names.push(e.name)
+          }
           Typedef(t) =>
             match t.idl_type {
-              Union(_) => global_union_set.push(t.name)
-              _ => ()
+              Union(members) => {
+                global_union_set.push(t.name)
+                union_typedef_map.push((t.name, members))
+              }
+              // Non-union typedef (primitive alias like DOMHighResTimeStamp = double)
+              other => primitive_typedef_map.push((t.name, other))
             }
+          Dictionary(d) => dictionary_names.push(d.name)
+          CallbackInterface(cb) => callback_interface_names.push(cb.name)
           _ => ()
         }
       }
 
-      // Write shared.mbt with common types and external declarations
-      let shared_code = gen_shared_types_with_externals(external_types)
+      // Collect inline Unions from all definitions
+      let inline_unions = collect_inline_unions(all_definitions)
+      // Add inline Union names to global_union_set
+      for entry in inline_unions.iter() {
+        let (name, _) = entry
+        let mut found = false
+        for existing in global_union_set {
+          if existing == name {
+            found = true
+            break
+          }
+        }
+        if not(found) {
+          global_union_set.push(name)
+        }
+      }
+
+      // Build set of defined type names from ownership map
+      let defined_types : Array[String] = []
+      for entry in ownership {
+        let (name, _) = entry
+        defined_types.push(name)
+      }
+
+      // Write shared.mbt with common types, external declarations, and inline Unions
+      let shared_code = gen_shared_types_with_externals(
+        external_types,
+        inline_unions,
+        defined_types,
+        dictionary_names,
+        union_typedef_map~,
+        enum_names~,
+        primitive_typedef_map~,
+        callback_interface_names~,
+      )
       let shared_file = path_join(args.output, "shared.mbt")
       println("Writing: " + shared_file)
       write_file_sync(shared_file, shared_code)
@@ -324,11 +376,19 @@ async fn main {
               merged,
               global_enum_map,
               global_union_set,
+              dictionary_names,
+              union_typedef_map~,
+              enum_names~,
+              primitive_typedef_map~,
+              callback_interface_names~,
             )
-            let output_file = path_join(args.output, result.spec_name + ".mbt")
-            write_file_sync(output_file, code)
-            success_count = success_count + 1
-            total_defs = total_defs + merged.length()
+            // Skip empty files (no definitions after merging)
+            if merged.length() > 0 {
+              let output_file = path_join(args.output, result.spec_name + ".mbt")
+              write_file_sync(output_file, code)
+              success_count = success_count + 1
+              total_defs = total_defs + merged.length()
+            }
           }
         }
       }

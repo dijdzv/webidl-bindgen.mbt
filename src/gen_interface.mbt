@@ -1,8 +1,45 @@
 // Interface binding 生成ロジック
 
+/// inline Union の収集用型（Union 名 → メンバー型）
+pub struct InlineUnionCollector {
+  entries : Array[(String, Array[IdlType])]
+}
+
 ///|
-/// WebIDL 型を MoonBit 型に変換
-pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
+/// 空のコレクタを作成
+pub fn InlineUnionCollector::new() -> InlineUnionCollector {
+  { entries: [] }
+}
+
+///|
+/// コレクタに追加
+pub fn InlineUnionCollector::push(
+  self : InlineUnionCollector,
+  entry : (String, Array[IdlType])
+) -> Unit {
+  self.entries.push(entry)
+}
+
+///|
+/// コレクタのイテレーション用
+pub fn InlineUnionCollector::iter(
+  self : InlineUnionCollector
+) -> Iter[(String, Array[IdlType])] {
+  self.entries.iter()
+}
+
+///|
+/// コレクタの長さ
+pub fn InlineUnionCollector::length(self : InlineUnionCollector) -> Int {
+  self.entries.length()
+}
+
+///|
+/// WebIDL 型を MoonBit 型に変換（inline Union を収集）
+pub fn idl_type_to_moonbit_collecting(
+  idl_type : IdlType,
+  collector : InlineUnionCollector
+) -> String {
   match idl_type {
     Primitive(name) =>
       // WebIDL プリミティブ → MoonBit
@@ -22,7 +59,7 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
     String => "String"
     Void => "Unit"
     Nullable(inner) => {
-      let inner_type = idl_type_to_moonbit(inner)
+      let inner_type = idl_type_to_moonbit_collecting(inner, collector)
       // 二重 nullable を防ぐ
       if str_ends_with_question(inner_type) {
         inner_type
@@ -40,6 +77,67 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
       }
     }
     Sequence(inner) => {
+      let inner_type = idl_type_to_moonbit_collecting(inner, collector)
+      "Array[" + inner_type + "]"
+    }
+    Promise(inner) => {
+      let inner_type = idl_type_to_moonbit_collecting(inner, collector)
+      "Promise[" + inner_type + "]"
+    }
+    Union(members) => {
+      // 1メンバーの Union はその型を直接使う
+      if members.length() == 1 {
+        return idl_type_to_moonbit_collecting(members[0], collector)
+      }
+      // inline Union の名前を生成し、コレクタに追加
+      let union_name = generate_inline_union_name(members)
+      // 既に追加済みでなければ追加
+      if not(has_inline_union(collector, union_name)) {
+        collector.push((union_name, members))
+      }
+      union_name
+    }
+    Any => "JsValue"
+  }
+}
+
+///|
+/// WebIDL 型を MoonBit 型に変換（inline Union は生成名を返す）
+pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        "boolean" => "Bool"
+        "byte"
+        | "octet"
+        | "short"
+        | "unsigned short"
+        | "long"
+        | "unsigned long" => "Int"
+        "long long" | "unsigned long long" => "Int64"
+        "float" | "unrestricted float" | "double" | "unrestricted double" =>
+          "Double"
+        _ => "JsValue"
+      }
+    String => "String"
+    Void => "Unit"
+    Nullable(inner) => {
+      let inner_type = idl_type_to_moonbit(inner)
+      if str_ends_with_question(inner_type) {
+        inner_type
+      } else {
+        inner_type + "?"
+      }
+    }
+    Named(name) => {
+      let first_char = get_str_first_char(name)
+      if first_char >= 'a' && first_char <= 'z' {
+        "JsValue"
+      } else {
+        name
+      }
+    }
+    Sequence(inner) => {
       let inner_type = idl_type_to_moonbit(inner)
       "Array[" + inner_type + "]"
     }
@@ -47,9 +145,128 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
       let inner_type = idl_type_to_moonbit(inner)
       "Promise[" + inner_type + "]"
     }
-    Union(_) => "JsValue" // Union型はJsValue
+    Union(members) => {
+      // 1メンバーの Union はその型を直接使う
+      if members.length() == 1 {
+        return idl_type_to_moonbit(members[0])
+      }
+      // inline Union の名前を生成して返す
+      generate_inline_union_name(members)
+    }
     Any => "JsValue"
   }
+}
+
+///|
+/// inline Union の名前を生成（メンバー型から一意な名前を生成）
+fn generate_inline_union_name(members : Array[IdlType]) -> String {
+  let parts : Array[String] = []
+  for mem in members {
+    let part = get_union_member_name(mem)
+    if part != "" {
+      parts.push(part)
+    }
+  }
+  // メンバー名を結合（例: StringOrCanvasGradientOrCanvasPattern）
+  let result = StringBuilder::new()
+  for i, part in parts {
+    if i > 0 {
+      result.write_string("Or")
+    }
+    result.write_string(part)
+  }
+  result.to_string()
+}
+
+///|
+/// Union メンバーの型名を取得（名前生成用）
+fn get_union_member_name(idl_type : IdlType) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        "DOMString" | "USVString" | "ByteString" => "String"
+        "boolean" => "Bool"
+        "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" =>
+          "Int"
+        "long long" | "unsigned long long" => "Int64"
+        "float" | "unrestricted float" | "double" | "unrestricted double" =>
+          "Double"
+        // その他のプリミティブ型も名前を持つように
+        _ => capitalize_first(name)
+      }
+    String => "String"
+    Named(name) => {
+      // 小文字始まりの場合は大文字化（bigint など）
+      let first_char = get_str_first_char(name)
+      if first_char >= 'a' && first_char <= 'z' {
+        capitalize_first(name)
+      } else {
+        name
+      }
+    }
+    Sequence(inner) => {
+      let inner_name = get_union_member_name(inner)
+      if inner_name != "" {
+        "ArrayOf" + inner_name
+      } else {
+        "Array"
+      }
+    }
+    Nullable(inner) => {
+      let inner_name = get_union_member_name(inner)
+      if inner_name != "" {
+        "Nullable" + inner_name
+      } else {
+        "Nullable"
+      }
+    }
+    Promise(inner) => {
+      let inner_name = get_union_member_name(inner)
+      if inner_name != "" {
+        "PromiseOf" + inner_name
+      } else {
+        "Promise"
+      }
+    }
+    Union(members) => {
+      // ネストされた Union は再帰的に名前を生成
+      generate_inline_union_name(members)
+    }
+    Void => "Void"
+    Any => "Any"
+  }
+}
+
+///|
+/// 文字列の最初の文字を大文字にする
+fn capitalize_first(s : String) -> String {
+  let result = StringBuilder::new()
+  let mut first = true
+  for c in s {
+    if first {
+      // 小文字なら大文字に変換
+      if c >= 'a' && c <= 'z' {
+        result.write_char((c.to_int() - 32).unsafe_to_char())
+      } else {
+        result.write_char(c)
+      }
+      first = false
+    } else {
+      result.write_char(c)
+    }
+  }
+  result.to_string()
+}
+
+///|
+/// コレクタに指定名の Union が既に存在するかチェック
+fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
+  for entry in collector.iter() {
+    if entry.0 == name {
+      return true
+    }
+  }
+  false
 }
 
 ///|
