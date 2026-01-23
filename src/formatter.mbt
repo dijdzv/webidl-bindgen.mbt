@@ -1,5 +1,43 @@
 // コード出力フォーマッター
 
+/// ヘッダーで宣言される外部型（カテゴリ付き）
+/// (型名, カテゴリ, コメント)
+let external_header_types : Array[(String, String, String)] = [
+  // HTML Elements
+  ("HTMLCanvasElement", "HTML Elements", ""),
+  ("HTMLImageElement", "HTML Elements", ""),
+  ("HTMLVideoElement", "HTML Elements", ""),
+  ("Element", "HTML Elements", ""),
+  // SVG Elements
+  ("SVGImageElement", "SVG Elements", ""),
+  ("SVGMatrix", "SVG Elements", ""),
+  // Canvas/Image types
+  ("ImageBitmap", "Canvas/Image types", ""),
+  ("ImageData", "Canvas/Image types", ""),
+  ("OffscreenCanvas", "Canvas/Image types", ""),
+  ("VideoFrame", "Canvas/Image types", ""),
+  ("CanvasImageSource", "Canvas/Image types", "// union type"),
+  ("CanvasGradient", "Canvas/Image types", ""),
+  ("CanvasPattern", "Canvas/Image types", ""),
+  ("Path2D", "Canvas/Image types", ""),
+  // Matrix/Transform types
+  ("DOMMatrix", "Matrix/Transform types", ""),
+  ("DOMMatrix2DInit", "Matrix/Transform types", ""),
+  // TypedArrays
+  ("Uint8ClampedArray", "TypedArrays", ""),
+  ("Float64Array", "TypedArrays", ""),
+]
+
+///|
+/// 外部型名のみの配列を取得
+fn get_external_type_names() -> Array[String] {
+  let names : Array[String] = []
+  for entry in external_header_types {
+    names.push(entry.0)
+  }
+  names
+}
+
 ///|
 /// WebIDL で定義される型名を収集
 fn collect_defined_types(definitions : Array[Definition]) -> Array[String] {
@@ -254,12 +292,7 @@ fn collect_undefined_external_types(
   ]
 
   // ヘッダーで既に宣言される型も除外
-  let header_types = [
-    "HTMLCanvasElement", "HTMLImageElement", "HTMLVideoElement", "Element", "SVGImageElement",
-    "SVGMatrix", "ImageBitmap", "ImageData", "OffscreenCanvas", "VideoFrame", "CanvasImageSource",
-    "CanvasGradient", "CanvasPattern", "Path2D", "DOMMatrix", "DOMMatrix2DInit",
-    "Uint8ClampedArray", "Float64Array",
-  ]
+  let header_types = get_external_type_names()
   for ref_type in referenced {
     // 小文字始まりは除外 (object など無効な型名)
     let first_char = get_first_char(ref_type)
@@ -331,33 +364,22 @@ pub fn gen_file_header_with_exclude(
     "pub extern \"js\" fn JsValue::undefined() -> JsValue =\n",
   )
   result.write_string("  #| () => undefined\n\n")
-  result.write_string("// HTML Elements\n")
-  write_external_type(result, "HTMLCanvasElement", exclude, "")
-  write_external_type(result, "HTMLImageElement", exclude, "")
-  write_external_type(result, "HTMLVideoElement", exclude, "")
-  write_external_type(result, "Element", exclude, "")
-  result.write_string("\n")
-  result.write_string("// SVG Elements\n")
-  write_external_type(result, "SVGImageElement", exclude, "")
-  write_external_type(result, "SVGMatrix", exclude, "")
-  result.write_string("\n")
-  result.write_string("// Canvas/Image types\n")
-  write_external_type(result, "ImageBitmap", exclude, "")
-  write_external_type(result, "ImageData", exclude, "")
-  write_external_type(result, "OffscreenCanvas", exclude, "")
-  write_external_type(result, "VideoFrame", exclude, "")
-  write_external_type(result, "CanvasImageSource", exclude, "// union type")
-  write_external_type(result, "CanvasGradient", exclude, "")
-  write_external_type(result, "CanvasPattern", exclude, "")
-  write_external_type(result, "Path2D", exclude, "")
-  result.write_string("\n")
-  result.write_string("// Matrix/Transform types\n")
-  write_external_type(result, "DOMMatrix", exclude, "")
-  write_external_type(result, "DOMMatrix2DInit", exclude, "")
-  result.write_string("\n")
-  result.write_string("// TypedArrays\n")
-  write_external_type(result, "Uint8ClampedArray", exclude, "")
-  write_external_type(result, "Float64Array", exclude, "")
+
+  // 外部型をカテゴリごとに出力
+  let mut current_category = ""
+  for entry in external_header_types {
+    let (type_name, category, comment) = entry
+    if category != current_category {
+      if current_category != "" {
+        result.write_string("\n")
+      }
+      result.write_string("// ")
+      result.write_string(category)
+      result.write_string("\n")
+      current_category = category
+    }
+    write_external_type(result, type_name, exclude, comment)
+  }
   result.write_string("\n")
   result.to_string()
 }

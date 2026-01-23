@@ -87,7 +87,7 @@ fn parse_args() -> CliArgs {
       if i < argc {
         output = get_argv_string(i)
       }
-    } else if input == "" && not(starts_with(arg, "--")) {
+    } else if input == "" && not(arg.has_prefix("--")) {
       // Positional argument as input
       input = arg
     }
@@ -124,46 +124,6 @@ fn print_usage() -> Unit {
   println(
     "  webidl-bindgen --all --per-spec -o ./src/  # Output each spec separately",
   )
-}
-
-///|
-fn starts_with(s : String, prefix : String) -> Bool {
-  let mut prefix_len = 0
-  for _ in prefix {
-    prefix_len = prefix_len + 1
-  }
-  let mut s_len = 0
-  for _ in s {
-    s_len = s_len + 1
-  }
-  if prefix_len > s_len {
-    return false
-  }
-
-  // Compare character by character
-  let mut matched = true
-  let mut idx = 0
-  for c in s {
-    if idx >= prefix_len {
-      break
-    }
-    let mut prefix_idx = 0
-    for pc in prefix {
-      if prefix_idx == idx {
-        if c != pc {
-          matched = false
-          break
-        }
-        break
-      }
-      prefix_idx = prefix_idx + 1
-    }
-    if not(matched) {
-      break
-    }
-    idx = idx + 1
-  }
-  matched
 }
 
 ///|
