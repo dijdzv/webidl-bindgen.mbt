@@ -186,12 +186,7 @@ fn gen_field_value_expr(
 ///|
 /// Union 型セットに含まれるかを判定
 fn is_in_union_set(union_set : Array[String], type_name : String) -> Bool {
-  for name in union_set {
-    if name == type_name {
-      return true
-    }
-  }
-  false
+  union_set.contains(type_name)
 }
 
 ///|
@@ -225,14 +220,17 @@ fn gen_nullable_field_expr(
       match lookup_enum(enum_map, type_name) {
         Some(values) => {
           result.write_string("[")
-          for i = 0; i < values.length(); i = i + 1 {
-            if i > 0 {
-              result.write_string(", ")
-            }
-            result.write_string("'")
-            result.write_string(values[i])
-            result.write_string("'")
-          }
+          ignore(
+            values.iter().fold(init=true, fn(first, v) {
+              if not(first) {
+                result.write_string(", ")
+              }
+              result.write_string("'")
+              result.write_string(v)
+              result.write_string("'")
+              false
+            }),
+          )
           result.write_string("][v.$0]")
         }
         None =>
@@ -276,14 +274,17 @@ fn gen_nullable_type_field_expr(
       match lookup_enum(enum_map, type_name) {
         Some(values) => {
           result.write_string("return [")
-          for i = 0; i < values.length(); i = i + 1 {
-            if i > 0 {
-              result.write_string(", ")
-            }
-            result.write_string("'")
-            result.write_string(values[i])
-            result.write_string("'")
-          }
+          ignore(
+            values.iter().fold(init=true, fn(first, v) {
+              if not(first) {
+                result.write_string(", ")
+              }
+              result.write_string("'")
+              result.write_string(v)
+              result.write_string("'")
+              false
+            }),
+          )
           result.write_string("][v.$0];")
         }
         None =>
@@ -304,41 +305,13 @@ fn gen_nullable_type_field_expr(
 ///|
 /// 非 nullable enum 用の配列ルックアップ式を生成
 fn gen_enum_lookup(field_name : String, values : Array[String]) -> String {
-  let result = StringBuilder::new()
-  result.write_string("[")
-  for i = 0; i < values.length(); i = i + 1 {
-    if i > 0 {
-      result.write_string(", ")
-    }
-    result.write_string("'")
-    result.write_string(values[i])
-    result.write_string("'")
-  }
-  result.write_string("][self.")
-  result.write_string(field_name)
-  result.write_string("]")
-  result.to_string()
+  gen_enum_array_lookup(values, "self." + field_name)
 }
 
 ///|
 /// nullable enum 用の配列ルックアップ式を生成（null チェック付き）
 fn gen_nullable_enum_lookup(field_name : String, values : Array[String]) -> String {
-  let result = StringBuilder::new()
-  result.write_string("(self.")
-  result.write_string(field_name)
-  result.write_string(" != null ? [")
-  for i = 0; i < values.length(); i = i + 1 {
-    if i > 0 {
-      result.write_string(", ")
-    }
-    result.write_string("'")
-    result.write_string(values[i])
-    result.write_string("'")
-  }
-  result.write_string("][self.")
-  result.write_string(field_name)
-  result.write_string("] : null)")
-  result.to_string()
+  gen_nullable_enum_array_lookup(values, "self." + field_name)
 }
 
 ///|
@@ -417,25 +390,23 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
 /// フィールド名を MoonBit 用に変換（小文字開始、ハイフンをアンダースコアに）
 fn field_name_to_moonbit(name : String) -> String {
   let result = StringBuilder::new()
-  let mut first = true
-  for c in name {
-    if first {
-      // 最初の文字は小文字に
-      if c >= 'A' && c <= 'Z' {
-        let lower_code = c.to_int() + 32
-        let lower = lower_code.unsafe_to_char()
-        result.write_char(lower)
+  ignore(
+    name.iter().fold(init=true, fn(first, c) {
+      if first {
+        // 最初の文字は小文字に
+        if c >= 'A' && c <= 'Z' {
+          result.write_char((c.to_int() + 32).unsafe_to_char())
+        } else {
+          result.write_char(c)
+        }
+      } else if c == '-' {
+        result.write_char('_')
       } else {
         result.write_char(c)
       }
-      first = false
-    } else if c == '-' {
-      // ハイフンはアンダースコアに
-      result.write_char('_')
-    } else {
-      result.write_char(c)
-    }
-  }
+      false
+    }),
+  )
   escape_reserved(result.to_string())
 }
 
@@ -627,21 +598,20 @@ fn get_factory_name(idl_type : IdlType) -> String {
 /// 型名を snake_case に変換（ファクトリ関数名用）
 fn to_snake_case_factory(name : String) -> String {
   let result = StringBuilder::new()
-  let mut first = true
-  for c in name {
-    if c >= 'A' && c <= 'Z' {
-      if not(first) {
-        result.write_char('_')
+  ignore(
+    name.iter().fold(init=true, fn(first, c) {
+      if c >= 'A' && c <= 'Z' {
+        if not(first) {
+          result.write_char('_')
+        }
+        // 大文字を小文字に変換
+        result.write_char((c.to_int() + 32).unsafe_to_char())
+      } else {
+        result.write_char(c)
       }
-      // 大文字を小文字に変換
-      let lower_code = c.to_int() + 32
-      let lower = lower_code.unsafe_to_char()
-      result.write_char(lower)
-    } else {
-      result.write_char(c)
-    }
-    first = false
-  }
+      false
+    }),
+  )
   result.to_string()
 }
 
@@ -761,16 +731,12 @@ fn get_js_type_check(
         return "typeof self === 'object' && self !== null && self.window === self"
       }
       // callback interface型はJSでは関数なのでtypeof === 'function'を使う
-      for cb_name in callback_interface_names {
-        if cb_name == name {
-          return "typeof self === 'function'"
-        }
+      if callback_interface_names.contains(name) {
+        return "typeof self === 'function'"
       }
       // enum型はJSでは文字列なのでtypeof === 'string'を使う
-      for enum_name in enum_names {
-        if enum_name == name {
-          return "typeof self === 'string'"
-        }
+      if enum_names.contains(name) {
+        return "typeof self === 'string'"
       }
       // プリミティブtypedefは解決後の型でチェック
       for entry in primitive_typedef_map {
@@ -787,10 +753,8 @@ fn get_js_type_check(
         }
       }
       // Dictionary型はinstanceofが使えないのでtypeofでオブジェクトチェック
-      for dict_name in dictionary_names {
-        if dict_name == name {
-          return "typeof self === 'object' && self !== null"
-        }
+      if dictionary_names.contains(name) {
+        return "typeof self === 'object' && self !== null"
       }
       // Union typedef はJSにクラスが存在しないので構成要素を展開
       for entry in union_typedef_map {
