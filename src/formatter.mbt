@@ -1,44 +1,78 @@
 // コード出力フォーマッター
 
+/// ヘッダーで宣言される外部型（カテゴリ付き）
+/// (型名, カテゴリ, コメント)
+let external_header_types : Array[(String, String, String)] = [
+  // HTML Elements
+  ("HTMLCanvasElement", "HTML Elements", ""),
+  ("HTMLImageElement", "HTML Elements", ""),
+  ("HTMLVideoElement", "HTML Elements", ""),
+  ("Element", "HTML Elements", ""),
+  // SVG Elements
+  ("SVGImageElement", "SVG Elements", ""),
+  ("SVGMatrix", "SVG Elements", ""),
+  // Canvas/Image types
+  ("ImageBitmap", "Canvas/Image types", ""),
+  ("ImageData", "Canvas/Image types", ""),
+  ("OffscreenCanvas", "Canvas/Image types", ""),
+  ("VideoFrame", "Canvas/Image types", ""),
+  ("CanvasImageSource", "Canvas/Image types", "// union type"),
+  ("CanvasGradient", "Canvas/Image types", ""),
+  ("CanvasPattern", "Canvas/Image types", ""),
+  ("Path2D", "Canvas/Image types", ""),
+  // Matrix/Transform types
+  ("DOMMatrix", "Matrix/Transform types", ""),
+  ("DOMMatrix2DInit", "Matrix/Transform types", ""),
+  // TypedArrays
+  ("Uint8ClampedArray", "TypedArrays", ""),
+  ("Float64Array", "TypedArrays", ""),
+]
+
+/// MoonBit 組み込み型（外部型判定で除外）
+let builtin_types : Array[String] = [
+  "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
+]
+
+///|
+/// 外部型名のみの配列を取得
+fn get_external_type_names() -> Array[String] {
+  external_header_types.map(fn(entry) { entry.0 })
+}
+
 ///|
 /// WebIDL で定義される型名を収集
 fn collect_defined_types(definitions : Array[Definition]) -> Array[String] {
-  let types : Array[String] = []
-  for def in definitions {
-    match def {
-      Interface(iface) => types.push(iface.name)
-      Dictionary(dict) => types.push(dict.name)
-      Enum(e) => types.push(e.name)
-      Typedef(t) => types.push(t.name)
-      CallbackInterface(cb) => types.push(cb.name)
-      _ => ()
-    }
-  }
-  types
+  definitions
+    .iter()
+    .filter_map(fn(def) {
+      match def {
+        Interface(iface) => Some(iface.name)
+        Dictionary(dict) => Some(dict.name)
+        Enum(e) => Some(e.name)
+        Typedef(t) => Some(t.name)
+        CallbackInterface(cb) => Some(cb.name)
+        _ => None
+      }
+    })
+    .collect()
 }
 
 ///|
 /// 定義内で参照されている型名を収集
 fn collect_referenced_types(definitions : Array[Definition]) -> Array[String] {
   let refs : Array[String] = []
-  for def in definitions {
+  definitions.iter().each(fn(def) {
     match def {
       Interface(iface) =>
-        for mem in iface.members {
-          collect_types_from_member(mem, refs)
-        }
+        iface.members.iter().each(fn(mem) { collect_types_from_member(mem, refs) })
       Dictionary(dict) =>
-        for mem in dict.members {
-          collect_types_from_idl_type(mem.idl_type, refs)
-        }
+        dict.members.iter().each(fn(mem) { collect_types_from_idl_type(mem.idl_type, refs) })
       Typedef(t) => collect_types_from_idl_type(t.idl_type, refs)
       Partial(p) =>
-        for mem in p.members {
-          collect_types_from_member(mem, refs)
-        }
+        p.members.iter().each(fn(mem) { collect_types_from_member(mem, refs) })
       _ => ()
     }
-  }
+  })
   refs
 }
 
@@ -51,16 +85,12 @@ fn collect_types_from_member(
   match mem {
     Operation(op) => {
       collect_types_from_idl_type(op.return_type, refs)
-      for arg in op.arguments {
-        collect_types_from_idl_type(arg.idl_type, refs)
-      }
+      op.arguments.iter().each(fn(arg) { collect_types_from_idl_type(arg.idl_type, refs) })
     }
     Attribute(attr) => collect_types_from_idl_type(attr.idl_type, refs)
     Const(c) => collect_types_from_idl_type(c.idl_type, refs)
     Constructor(ctor) =>
-      for arg in ctor.arguments {
-        collect_types_from_idl_type(arg.idl_type, refs)
-      }
+      ctor.arguments.iter().each(fn(arg) { collect_types_from_idl_type(arg.idl_type, refs) })
     Maplike(m) => {
       collect_types_from_idl_type(m.key_type, refs)
       collect_types_from_idl_type(m.value_type, refs)
@@ -73,14 +103,12 @@ fn collect_types_from_member(
 /// IdlType から Named 型を収集
 fn collect_types_from_idl_type(t : IdlType, refs : Array[String]) -> Unit {
   match t {
-    Named(name) => if not(array_contains(refs, name)) { refs.push(name) }
+    Named(name) => if not(refs.contains(name)) { refs.push(name) }
     Nullable(inner) => collect_types_from_idl_type(inner, refs)
     Sequence(inner) => collect_types_from_idl_type(inner, refs)
     Promise(inner) => collect_types_from_idl_type(inner, refs)
     Union(types) =>
-      for ut in types {
-        collect_types_from_idl_type(ut, refs)
-      }
+      types.iter().each(fn(ut) { collect_types_from_idl_type(ut, refs) })
     _ => ()
   }
 }
@@ -91,29 +119,19 @@ pub fn collect_inline_unions(
   definitions : Array[Definition]
 ) -> InlineUnionCollector {
   let collector = InlineUnionCollector::new()
-  for def in definitions {
+  definitions.iter().each(fn(def) {
     match def {
       Interface(iface) =>
-        for mem in iface.members {
-          collect_inline_unions_from_member(mem, collector)
-        }
+        iface.members.iter().each(fn(mem) { collect_inline_unions_from_member(mem, collector) })
       InterfaceMixin(mixin_def) =>
-        for mem in mixin_def.members {
-          collect_inline_unions_from_member(mem, collector)
-        }
+        mixin_def.members.iter().each(fn(mem) { collect_inline_unions_from_member(mem, collector) })
       Dictionary(dict) =>
-        for mem in dict.members {
-          collect_inline_unions_from_idl_type(mem.idl_type, collector)
-        }
+        dict.members.iter().each(fn(mem) { collect_inline_unions_from_idl_type(mem.idl_type, collector) })
       Partial(p) =>
-        for mem in p.members {
-          collect_inline_unions_from_member(mem, collector)
-        }
+        p.members.iter().each(fn(mem) { collect_inline_unions_from_member(mem, collector) })
       CallbackInterface(cb) => {
         // callback の引数を処理
-        for arg in cb.arguments {
-          collect_inline_unions_from_idl_type(arg.idl_type, collector)
-        }
+        cb.arguments.iter().each(fn(arg) { collect_inline_unions_from_idl_type(arg.idl_type, collector) })
         // callback の戻り値を処理
         match cb.return_type {
           Some(t) => collect_inline_unions_from_idl_type(t, collector)
@@ -122,7 +140,7 @@ pub fn collect_inline_unions(
       }
       _ => ()
     }
-  }
+  })
   collector
 }
 
@@ -135,15 +153,11 @@ fn collect_inline_unions_from_member(
   match mem {
     Operation(op) => {
       collect_inline_unions_from_idl_type(op.return_type, collector)
-      for arg in op.arguments {
-        collect_inline_unions_from_idl_type(arg.idl_type, collector)
-      }
+      op.arguments.iter().each(fn(arg) { collect_inline_unions_from_idl_type(arg.idl_type, collector) })
     }
     Attribute(attr) => collect_inline_unions_from_idl_type(attr.idl_type, collector)
     Constructor(ctor) =>
-      for arg in ctor.arguments {
-        collect_inline_unions_from_idl_type(arg.idl_type, collector)
-      }
+      ctor.arguments.iter().each(fn(arg) { collect_inline_unions_from_idl_type(arg.idl_type, collector) })
     Maplike(m) => {
       collect_inline_unions_from_idl_type(m.key_type, collector)
       collect_inline_unions_from_idl_type(m.value_type, collector)
@@ -173,15 +187,12 @@ fn collect_inline_unions_from_idl_type(
       let dummy_collector = InlineUnionCollector::new()
       let _ = idl_type_to_moonbit_collecting(t, dummy_collector)
       // dummy_collector に追加されたものを本体コレクタにマージ
-      for entry in dummy_collector.iter() {
-        if not(has_inline_union_in_collector(collector, entry.0)) {
-          collector.push(entry)
-        }
-      }
+      dummy_collector
+        .iter()
+        .filter(fn(entry) { not(has_inline_union_in_collector(collector, entry.0)) })
+        .each(fn(entry) { collector.push(entry) })
       // Union メンバーも再帰的に処理
-      for mem in members {
-        collect_inline_unions_from_idl_type(mem, collector)
-      }
+      members.iter().each(fn(mem) { collect_inline_unions_from_idl_type(mem, collector) })
     }
     _ => ()
   }
@@ -193,24 +204,9 @@ fn has_inline_union_in_collector(
   collector : InlineUnionCollector,
   name : String
 ) -> Bool {
-  for entry in collector.iter() {
-    if entry.0 == name {
-      return true
-    }
-  }
-  false
+  collector.iter().any(fn(entry) { entry.0 == name })
 }
 
-///|
-/// 配列に値が含まれるか
-fn array_contains(arr : Array[String], val : String) -> Bool {
-  for item in arr {
-    if item == val {
-      return true
-    }
-  }
-  false
-}
 
 ///|
 /// 未定義の外部型を抽出（ownership map から定義済み型を除外するバージョン）
@@ -219,34 +215,20 @@ pub fn collect_external_types_with_ownership(
   ownership : Array[(String, String)],
 ) -> Array[String] {
   let referenced = collect_referenced_types(definitions)
-  let undefined : Array[String] = []
-
-  // 組み込み型は除外
-  let builtins = [
-    "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
-  ]
-  for ref_type in referenced {
+  referenced.iter().fold(init=Array::new(), fn(undefined, ref_type) {
     // 小文字始まりは除外 (object など無効な型名)
     let first_char = get_first_char(ref_type)
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
-
     // ownership map で定義済みかチェック
-    let mut is_defined = false
-    for i = 0; i < ownership.length(); i = i + 1 {
-      let (name, _) = ownership[i]
-      if name == ref_type {
-        is_defined = true
-        break
-      }
-    }
+    let is_defined = ownership.iter().any(fn(entry) { entry.0 == ref_type })
     if not(is_defined) &&
-      not(array_contains(builtins, ref_type)) &&
-      not(array_contains(undefined, ref_type)) &&
+      not(builtin_types.contains(ref_type)) &&
+      not(undefined.contains(ref_type)) &&
       not(is_lowercase) {
       undefined.push(ref_type)
     }
-  }
-  undefined
+    undefined
+  })
 }
 
 ///|
@@ -256,53 +238,27 @@ fn collect_undefined_external_types(
 ) -> Array[String] {
   let defined = collect_defined_types(definitions)
   let referenced = collect_referenced_types(definitions)
-  let undefined : Array[String] = []
-
-  // 組み込み型は除外
-  let builtins = [
-    "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
-  ]
-
   // ヘッダーで既に宣言される型も除外
-  let header_types = [
-    "HTMLCanvasElement", "HTMLImageElement", "HTMLVideoElement", "Element", "SVGImageElement",
-    "SVGMatrix", "ImageBitmap", "ImageData", "OffscreenCanvas", "VideoFrame", "CanvasImageSource",
-    "CanvasGradient", "CanvasPattern", "Path2D", "DOMMatrix", "DOMMatrix2DInit",
-    "Uint8ClampedArray", "Float64Array",
-  ]
-  for ref_type in referenced {
+  let header_types = get_external_type_names()
+  referenced.iter().fold(init=Array::new(), fn(undefined, ref_type) {
     // 小文字始まりは除外 (object など無効な型名)
     let first_char = get_first_char(ref_type)
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
-    if not(array_contains(defined, ref_type)) &&
-      not(array_contains(builtins, ref_type)) &&
-      not(array_contains(header_types, ref_type)) &&
-      not(array_contains(undefined, ref_type)) &&
+    if not(defined.contains(ref_type)) &&
+      not(builtin_types.contains(ref_type)) &&
+      not(header_types.contains(ref_type)) &&
+      not(undefined.contains(ref_type)) &&
       not(is_lowercase) {
       undefined.push(ref_type)
     }
-  }
-  undefined
-}
-
-///|
-/// 文字列の最初の文字を取得
-fn get_first_char(s : String) -> Char {
-  for c in s {
-    return c
-  }
-  ' '
+    undefined
+  })
 }
 
 ///|
 /// 型名が除外リストに含まれるかチェック
 fn is_excluded_type(name : String, exclude : Array[String]) -> Bool {
-  for t in exclude {
-    if t == name {
-      return true
-    }
-  }
-  false
+  exclude.contains(name)
 }
 
 ///|
@@ -350,33 +306,23 @@ pub fn gen_file_header_with_exclude(
     "pub extern \"js\" fn JsValue::undefined() -> JsValue =\n",
   )
   result.write_string("  #| () => undefined\n\n")
-  result.write_string("// HTML Elements\n")
-  write_external_type(result, "HTMLCanvasElement", exclude, "")
-  write_external_type(result, "HTMLImageElement", exclude, "")
-  write_external_type(result, "HTMLVideoElement", exclude, "")
-  write_external_type(result, "Element", exclude, "")
-  result.write_string("\n")
-  result.write_string("// SVG Elements\n")
-  write_external_type(result, "SVGImageElement", exclude, "")
-  write_external_type(result, "SVGMatrix", exclude, "")
-  result.write_string("\n")
-  result.write_string("// Canvas/Image types\n")
-  write_external_type(result, "ImageBitmap", exclude, "")
-  write_external_type(result, "ImageData", exclude, "")
-  write_external_type(result, "OffscreenCanvas", exclude, "")
-  write_external_type(result, "VideoFrame", exclude, "")
-  write_external_type(result, "CanvasImageSource", exclude, "// union type")
-  write_external_type(result, "CanvasGradient", exclude, "")
-  write_external_type(result, "CanvasPattern", exclude, "")
-  write_external_type(result, "Path2D", exclude, "")
-  result.write_string("\n")
-  result.write_string("// Matrix/Transform types\n")
-  write_external_type(result, "DOMMatrix", exclude, "")
-  write_external_type(result, "DOMMatrix2DInit", exclude, "")
-  result.write_string("\n")
-  result.write_string("// TypedArrays\n")
-  write_external_type(result, "Uint8ClampedArray", exclude, "")
-  write_external_type(result, "Float64Array", exclude, "")
+
+  // 外部型をカテゴリごとに出力
+  ignore(
+    external_header_types.iter().fold(init="", fn(current_category, entry) {
+      let (type_name, category, comment) = entry
+      if category != current_category {
+        if current_category != "" {
+          result.write_string("\n")
+        }
+        result.write_string("// ")
+        result.write_string(category)
+        result.write_string("\n")
+      }
+      write_external_type(result, type_name, exclude, comment)
+      category
+    }),
+  )
   result.write_string("\n")
   result.to_string()
 }
@@ -394,23 +340,17 @@ pub fn gen_section_comment(title : String) -> String {
   result.write_string("// ")
   // タイトル幅に合わせて区切り線を作成
   let line_len = 60
-  let mut title_len = 0
-  for _ in title {
-    title_len = title_len + 1
-  }
+  let title_len = title.length()
   let padding = (line_len - title_len - 4) / 2
-  let mut i = 0
-  while i < padding {
+  // パディング文字を書き込み
+  for _ in 0..<padding {
     result.write_char('-')
-    i = i + 1
   }
   result.write_string(" ")
   result.write_string(title)
   result.write_string(" ")
-  i = 0
-  while i < padding {
+  for _ in 0..<padding {
     result.write_char('-')
-    i = i + 1
   }
   result.write_string("\n\n")
   result.to_string()
@@ -428,13 +368,15 @@ pub fn format_definitions(
   let defined_types = collect_defined_types(definitions)
 
   // Dictionary型の名前を収集（Union の is_*/as_* で使用）
-  let dictionary_names : Array[String] = []
-  for def in definitions {
-    match def {
-      Dictionary(d) => dictionary_names.push(d.name)
-      _ => ()
-    }
-  }
+  let dictionary_names : Array[String] = definitions
+    .iter()
+    .filter_map(fn(def) {
+      match def {
+        Dictionary(d) => Some(d.name)
+        _ => None
+      }
+    })
+    .collect()
 
   // ファイルヘッダー（WebIDL で定義される型は除外）
   result.write_string(gen_file_header_with_exclude(source_file, defined_types))
@@ -445,11 +387,11 @@ pub fn format_definitions(
     result.write_string(
       "// Referenced external types (not defined in this WebIDL)\n",
     )
-    for type_name in undefined_types {
+    undefined_types.iter().each(fn(type_name) {
       result.write_string("pub type ")
       result.write_string(type_name)
       result.write_string("\n")
-    }
+    })
     result.write_string("\n")
   }
 
@@ -465,7 +407,7 @@ pub fn format_definitions(
   let primitive_typedef_map : Array[(String, IdlType)] = []
   // callback interface 名リストを作成（instanceof -> typeof === 'function'）
   let callback_interface_names : Array[String] = []
-  for def in definitions {
+  definitions.iter().each(fn(def) {
     match def {
       Enum(e) => {
         enum_map.push((e.name, e.values))
@@ -482,37 +424,29 @@ pub fn format_definitions(
       CallbackInterface(cb) => callback_interface_names.push(cb.name)
       _ => ()
     }
-  }
+  })
 
   // inline Union を収集
   let inline_unions = collect_inline_unions(definitions)
   // inline Union 名を union_set に追加
-  for entry in inline_unions.iter() {
-    if not(array_contains(union_set, entry.0)) {
-      union_set.push(entry.0)
-    }
-  }
+  inline_unions
+    .iter()
+    .filter(fn(entry) { not(union_set.contains(entry.0)) })
+    .each(fn(entry) { union_set.push(entry.0) })
 
   // Types セクション (enum, dictionary, typedef, callback interface, inline unions)
-  let mut has_types = false
-  for def in definitions {
-    match def {
-      Enum(_) | Dictionary(_) | Typedef(_) | CallbackInterface(_) => {
-        has_types = true
-        break
+  let has_types = inline_unions.length() > 0 ||
+    definitions.iter().any(fn(def) {
+      match def {
+        Enum(_) | Dictionary(_) | Typedef(_) | CallbackInterface(_) => true
+        _ => false
       }
-      _ => ()
-    }
-  }
-  // inline Union がある場合も Types セクションを出力
-  if inline_unions.length() > 0 {
-    has_types = true
-  }
+    })
   if has_types {
     result.write_string(gen_section_comment("Types"))
 
     // Typedef を先に出力（他の型から参照される可能性があるため）
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         Typedef(t) => {
           result.write_string(gen_typedef(t, dictionary_names~, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~))
@@ -520,19 +454,19 @@ pub fn format_definitions(
         }
         _ => ()
       }
-    }
+    })
 
     // inline Union の typedef を出力
-    for entry in inline_unions.iter() {
+    inline_unions.iter().each(fn(entry) {
       let (name, members) = entry
       // TypedefDef を作成して gen_typedef を再利用
       let typedef_def : TypedefDef = { name, idl_type: Union(members) }
       result.write_string(gen_typedef(typedef_def, dictionary_names~, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~))
       result.write_string("\n")
-    }
+    })
 
     // Enum を出力
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         Enum(e) => {
           result.write_string(gen_enum(e))
@@ -540,10 +474,10 @@ pub fn format_definitions(
         }
         _ => ()
       }
-    }
+    })
 
     // CallbackInterface を出力（opaque型 + from_fn ヘルパー）
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         CallbackInterface(cb) => {
           result.write_string("/// ")
@@ -559,10 +493,10 @@ pub fn format_definitions(
         }
         _ => ()
       }
-    }
+    })
 
     // Dictionary を出力
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         Dictionary(d) => {
           result.write_string(gen_dictionary(d, enum_map, union_set))
@@ -570,23 +504,19 @@ pub fn format_definitions(
         }
         _ => ()
       }
-    }
+    })
   }
 
   // Interfaces セクション
-  let mut has_interfaces = false
-  for def in definitions {
+  let has_interfaces = definitions.iter().any(fn(def) {
     match def {
-      Interface(_) => {
-        has_interfaces = true
-        break
-      }
-      _ => ()
+      Interface(_) => true
+      _ => false
     }
-  }
+  })
   if has_interfaces {
     result.write_string(gen_section_comment("Interfaces"))
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         Interface(iface) => {
           result.write_string(gen_interface_binding(iface, enum_map))
@@ -594,7 +524,7 @@ pub fn format_definitions(
         }
         _ => ()
       }
-    }
+    })
   }
   result.to_string()
 }
@@ -614,30 +544,34 @@ pub fn format_interface(source_file : String, iface : InterfaceDef) -> String {
 /// 連続する空行を1つにまとめる
 pub fn normalize_blank_lines(code : String) -> String {
   let result = StringBuilder::new()
-  let mut prev_was_blank = false
-  let mut current_line = StringBuilder::new()
-  for c in code {
-    if c == '\n' {
-      let line = current_line.to_string()
-      let is_blank = is_blank_line(line)
-      if is_blank {
-        if not(prev_was_blank) {
+  let current_line = StringBuilder::new()
+  // State: (prev_was_blank, current_line)
+  let (_, final_line) = code.iter().fold(
+    init=(false, current_line),
+    fn(state, c) {
+      let (prev_was_blank, current_line) = state
+      if c == '\n' {
+        let line = current_line.to_string()
+        let is_blank = is_blank_line(line)
+        if is_blank {
+          if not(prev_was_blank) {
+            result.write_char('\n')
+          }
+          (true, StringBuilder::new())
+        } else {
+          result.write_string(line)
           result.write_char('\n')
+          (false, StringBuilder::new())
         }
-        prev_was_blank = true
       } else {
-        result.write_string(line)
-        result.write_char('\n')
-        prev_was_blank = false
+        current_line.write_char(c)
+        (prev_was_blank, current_line)
       }
-      current_line = StringBuilder::new()
-    } else {
-      current_line.write_char(c)
-    }
-  }
+    },
+  )
 
   // 最後の行を処理
-  let last_line = current_line.to_string()
+  let last_line = final_line.to_string()
   if not(is_blank_line(last_line)) {
     result.write_string(last_line)
   }
@@ -647,25 +581,20 @@ pub fn normalize_blank_lines(code : String) -> String {
 ///|
 /// 空白行かどうか判定
 fn is_blank_line(line : String) -> Bool {
-  for c in line {
-    if c != ' ' && c != '\t' {
-      return false
-    }
-  }
-  true
+  line.iter().all(fn(c) { c == ' ' || c == '\t' })
 }
 
 ///|
 /// インデントを正規化（タブをスペース2つに変換）
 pub fn normalize_indent(code : String) -> String {
   let result = StringBuilder::new()
-  for c in code {
+  code.iter().each(fn(c) {
     if c == '\t' {
       result.write_string("  ")
     } else {
       result.write_char(c)
     }
-  }
+  })
   result.to_string()
 }
 
@@ -686,317 +615,6 @@ pub fn format_output(
 ///|
 /// Partial 定義をマージして統合された定義配列を返す
 /// 継承関係も解決して親メンバーを子に展開する
-pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
-  // Step 1: Collect all non-partial definitions into a map by name
-  // Deduplicate interfaces and dictionaries by merging members
-  let interfaces : Array[(String, InterfaceDef)] = []
-  let dictionaries : Array[(String, DictionaryDef)] = []
-  let mixins : Array[(String, InterfaceMixinDef)] = [] // Collect mixins
-  let includes_list : Array[IncludesDef] = [] // Collect includes statements
-  let others : Array[Definition] = []
-  let partials : Array[PartialDef] = []
-  let seen_enums : Array[String] = [] // Track seen enum names
-  let seen_typedefs : Array[String] = [] // Track seen typedef names
-  let seen_callbacks : Array[String] = [] // Track seen callback interface names
-  for def in definitions {
-    match def {
-      Interface(iface) => {
-        // Check if interface already exists
-        let mut found = false
-        for i = 0; i < interfaces.length(); i = i + 1 {
-          let (name, existing) = interfaces[i]
-          if name == iface.name {
-            // Merge members from duplicate interface
-            let merged_members = merge_interface_members(
-              existing.members,
-              iface.members,
-              iface.name,
-            )
-            let merged_iface : InterfaceDef = {
-              name: existing.name,
-              members: merged_members,
-              inheritance: match existing.inheritance {
-                Some(_) => existing.inheritance
-                None => iface.inheritance
-              },
-              extended_attrs: existing.extended_attrs,
-            }
-            interfaces[i] = (name, merged_iface)
-            found = true
-            break
-          }
-        }
-        if not(found) {
-          interfaces.push((iface.name, iface))
-        }
-      }
-      Dictionary(dict) => {
-        // Check if dictionary already exists
-        let mut found = false
-        for i = 0; i < dictionaries.length(); i = i + 1 {
-          let (name, existing) = dictionaries[i]
-          if name == dict.name {
-            // Merge members from duplicate dictionary
-            let merged_members = merge_dictionary_members(
-              existing.members,
-              dict.members,
-            )
-            let merged_dict : DictionaryDef = {
-              name: existing.name,
-              members: merged_members,
-              inheritance: match existing.inheritance {
-                Some(_) => existing.inheritance
-                None => dict.inheritance
-              },
-            }
-            dictionaries[i] = (name, merged_dict)
-            found = true
-            break
-          }
-        }
-        if not(found) {
-          dictionaries.push((dict.name, dict))
-        }
-      }
-      Partial(partial) => partials.push(partial)
-      Enum(e) =>
-        // Only add enum if not already seen
-        if not(array_contains(seen_enums, e.name)) {
-          seen_enums.push(e.name)
-          others.push(def)
-        }
-      Typedef(t) =>
-        // Only add typedef if not already seen
-        if not(array_contains(seen_typedefs, t.name)) {
-          seen_typedefs.push(t.name)
-          others.push(def)
-        }
-      CallbackInterface(cb) =>
-        // Only add callback interface if not already seen
-        if not(array_contains(seen_callbacks, cb.name)) {
-          seen_callbacks.push(cb.name)
-          others.push(def)
-        }
-      InterfaceMixin(mix_def) => {
-        // Collect mixin for later merging
-        let mut found = false
-        for i = 0; i < mixins.length(); i = i + 1 {
-          let (name, existing) = mixins[i]
-          if name == mix_def.name {
-            // Merge members from duplicate mixin
-            let merged_members = merge_interface_members(
-              existing.members,
-              mix_def.members,
-              mix_def.name,
-            )
-            let merged_mixin : InterfaceMixinDef = {
-              name: existing.name,
-              members: merged_members,
-            }
-            mixins[i] = (name, merged_mixin)
-            found = true
-            break
-          }
-        }
-        if not(found) {
-          mixins.push((mix_def.name, mix_def))
-        }
-      }
-      Includes(incl) => includes_list.push(incl)
-    }
-  }
-
-  // Step 2: Merge partial members into their target interfaces/dictionaries
-  for partial in partials {
-    let target_name = partial.target
-
-    // Try to find and merge with an interface
-    let mut found = false
-    for i = 0; i < interfaces.length(); i = i + 1 {
-      let (name, iface) = interfaces[i]
-      if name == target_name {
-        // Merge members (check for duplicates)
-        let merged_members = merge_interface_members(
-          iface.members,
-          partial.members,
-          target_name,
-        )
-        let merged_iface : InterfaceDef = {
-          name: iface.name,
-          members: merged_members,
-          inheritance: iface.inheritance,
-          extended_attrs: iface.extended_attrs,
-        }
-        interfaces[i] = (name, merged_iface)
-        found = true
-        break
-      }
-    }
-
-    // If not found as interface, create a new interface from partial
-    if not(found) {
-      let new_iface : InterfaceDef = {
-        name: target_name,
-        members: partial.members,
-        inheritance: None,
-        extended_attrs: [],
-      }
-      interfaces.push((target_name, new_iface))
-    }
-  }
-
-  // Step 3: Merge mixin members into interfaces based on includes statements
-  for incl in includes_list {
-    let target_name = incl.target
-    let mixin_name = incl.includes
-
-    // Find the mixin
-    let mut mixin_members : Array[InterfaceMember] = []
-    for i = 0; i < mixins.length(); i = i + 1 {
-      let (name, mix_def) = mixins[i]
-      if name == mixin_name {
-        mixin_members = mix_def.members
-        break
-      }
-    }
-
-    // Skip if mixin not found (might be in another spec)
-    if mixin_members.length() == 0 {
-      continue
-    }
-
-    // Find target interface and merge mixin members
-    for i = 0; i < interfaces.length(); i = i + 1 {
-      let (name, iface) = interfaces[i]
-      if name == target_name {
-        let merged_members = merge_interface_members(
-          iface.members,
-          mixin_members,
-          target_name + " (from mixin " + mixin_name + ")",
-        )
-        let merged_iface : InterfaceDef = {
-          name: iface.name,
-          members: merged_members,
-          inheritance: iface.inheritance,
-          extended_attrs: iface.extended_attrs,
-        }
-        interfaces[i] = (name, merged_iface)
-        break
-      }
-    }
-  }
-
-  // Step 4: Resolve inheritance for interfaces
-  resolve_interface_inheritance(interfaces)
-
-  // Step 5: Resolve inheritance for dictionaries
-  resolve_dictionary_inheritance(dictionaries)
-
-  // Step 6: Build result array
-  let result : Array[Definition] = []
-
-  // Add other definitions first (enums, typedefs)
-  for def in others {
-    result.push(def)
-  }
-
-  // Add dictionaries
-  for i = 0; i < dictionaries.length(); i = i + 1 {
-    let (_, dict) = dictionaries[i]
-    result.push(Dictionary(dict))
-  }
-
-  // Add interfaces
-  for i = 0; i < interfaces.length(); i = i + 1 {
-    let (_, iface) = interfaces[i]
-    result.push(Interface(iface))
-  }
-  result
-}
-
-///|
-/// Interface メンバーをマージ（重複検出付き）
-fn merge_interface_members(
-  existing : Array[InterfaceMember],
-  new_members : Array[InterfaceMember],
-  _target_name : String,
-) -> Array[InterfaceMember] {
-  let result : Array[InterfaceMember] = []
-
-  // Copy existing members
-  for mem in existing {
-    result.push(mem)
-  }
-
-  // Add new members, checking for duplicates
-  for new_mem in new_members {
-    let new_name = get_member_name(new_mem)
-    let mut is_duplicate = false
-    for existing_mem in existing {
-      if get_member_name(existing_mem) == new_name && new_name != "" {
-        // Duplicate detected - skip silently (expected during inheritance)
-        is_duplicate = true
-        break
-      }
-    }
-    if not(is_duplicate) {
-      result.push(new_mem)
-    }
-  }
-  result
-}
-
-///|
-/// メンバーの名前を取得
-fn get_member_name(mem : InterfaceMember) -> String {
-  match mem {
-    Operation(op) => op.name
-    Attribute(attr) => attr.name
-    Const(c) => c.name
-    Constructor(_) => "" // Constructors don't have names
-    Maplike(_) => "" // Maplike is a type-level feature, not a named member
-    Setlike(_) => "" // Setlike is a type-level feature, not a named member
-  }
-}
-
-///|
-/// Dictionary メンバーをマージ（重複検出付き）
-fn merge_dictionary_members(
-  existing : Array[DictionaryMember],
-  new_members : Array[DictionaryMember],
-) -> Array[DictionaryMember] {
-  let result : Array[DictionaryMember] = []
-
-  // Copy existing members (with duplicate check)
-  for mem in existing {
-    let mut is_duplicate = false
-    for r in result {
-      if r.name == mem.name {
-        is_duplicate = true
-        break
-      }
-    }
-    if not(is_duplicate) {
-      result.push(mem)
-    }
-  }
-
-  // Add new members, checking for duplicates
-  for new_mem in new_members {
-    let mut is_duplicate = false
-    for r in result {
-      if r.name == new_mem.name {
-        is_duplicate = true
-        break
-      }
-    }
-    if not(is_duplicate) {
-      result.push(new_mem)
-    }
-  }
-  result
-}
-
 ///|
 /// 共通型定義を生成（per-spec モード用）
 /// dictionary_names: Dictionary型の名前リスト（Union の is_*/as_* で使用）
@@ -1082,35 +700,27 @@ pub fn gen_shared_types_with_externals(
     result.write_string(
       "// External types (referenced but not defined in WebIDL specs)\n",
     )
-    for ext_type in external_types {
+    external_types.iter().each(fn(ext_type) {
       result.write_string("pub type ")
       result.write_string(ext_type)
       result.write_string("\n")
-    }
+    })
     result.write_string("\n")
   }
 
   // Inline Union type definitions
   if inline_unions.length() > 0 {
     result.write_string("// Inline Union types\n")
-    for entry in inline_unions.iter() {
-      let (name, members) = entry
-      // Skip if name matches an existing defined type (interface, etc.)
-      let mut is_already_defined = false
-      for defined in defined_types {
-        if defined == name {
-          is_already_defined = true
-          break
-        }
-      }
-      if is_already_defined {
-        continue
-      }
-      // Generate typedef for each inline Union
-      let typedef_def : TypedefDef = { name, idl_type: Union(members) }
-      result.write_string(gen_typedef(typedef_def, dictionary_names~, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~))
-      result.write_string("\n")
-    }
+    inline_unions
+      .iter()
+      .filter(fn(entry) { not(defined_types.contains(entry.0)) })
+      .each(fn(entry) {
+        let (name, members) = entry
+        // Generate typedef for each inline Union
+        let typedef_def : TypedefDef = { name, idl_type: Union(members) }
+        result.write_string(gen_typedef(typedef_def, dictionary_names~, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~))
+        result.write_string("\n")
+      })
   }
 
   result.to_string()
@@ -1144,19 +754,15 @@ pub fn format_spec_output(
 
   // Types セクション (typedef, enum, callback interface, dictionary)
   // Note: inline Unions are generated in shared.mbt to avoid duplication
-  let mut has_types = false
-  for def in definitions {
+  let has_types = definitions.iter().any(fn(def) {
     match def {
-      Typedef(_) | Enum(_) | Dictionary(_) | CallbackInterface(_) => {
-        has_types = true
-        break
-      }
-      _ => ()
+      Typedef(_) | Enum(_) | Dictionary(_) | CallbackInterface(_) => true
+      _ => false
     }
-  }
+  })
   if has_types {
     // Typedef を先に出力
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         Typedef(t) => {
           result.write_string(gen_typedef(t, dictionary_names~, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~))
@@ -1164,10 +770,10 @@ pub fn format_spec_output(
         }
         _ => ()
       }
-    }
+    })
 
     // Enum を出力
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         Enum(e) => {
           result.write_string(gen_enum(e))
@@ -1175,10 +781,10 @@ pub fn format_spec_output(
         }
         _ => ()
       }
-    }
+    })
 
     // CallbackInterface を出力（opaque型 + from_fn ヘルパー）
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         CallbackInterface(cb) => {
           result.write_string("/// ")
@@ -1194,10 +800,10 @@ pub fn format_spec_output(
         }
         _ => ()
       }
-    }
+    })
 
     // Dictionary を出力
-    for def in definitions {
+    definitions.iter().each(fn(def) {
       match def {
         Dictionary(d) => {
           result.write_string(gen_dictionary(d, global_enum_map, global_union_set))
@@ -1205,11 +811,11 @@ pub fn format_spec_output(
         }
         _ => ()
       }
-    }
+    })
   }
 
   // Interfaces セクション
-  for def in definitions {
+  definitions.iter().each(fn(def) {
     match def {
       Interface(iface) => {
         result.write_string(gen_interface_binding(iface, global_enum_map))
@@ -1217,373 +823,11 @@ pub fn format_spec_output(
       }
       _ => ()
     }
-  }
+  })
   let code = result.to_string()
   let code = normalize_indent(code)
   let code = normalize_blank_lines(code)
   code
-}
-
-///|
-/// 定義から型名を取得
-fn get_definition_name(def : Definition) -> String {
-  match def {
-    Interface(iface) => iface.name
-    Dictionary(dict) => dict.name
-    Enum(e) => e.name
-    Typedef(t) => t.name
-    Partial(p) => p.target // PartialDef has `target` field
-    InterfaceMixin(m) => m.name
-    CallbackInterface(cb) => cb.name
-    Includes(_) => "" // Includes has no type name
-  }
-}
-
-///|
-/// グローバル型所有権マップを構築（型名 -> 所有仕様名、最初の定義が優先）
-/// Note: Partial定義は所有権を持たない（元の型を定義する仕様が所有者）
-pub fn build_global_type_ownership(
-  results : Array[SpecLoadResult],
-) -> Array[(String, String)] {
-  let ownership : Array[(String, String)] = []
-  for result in results {
-    if result.success {
-      for def in result.definitions {
-        // Skip Partial and Includes - they don't define new types
-        match def {
-          Partial(_) | Includes(_) => continue
-          _ => ()
-        }
-        let type_name = get_definition_name(def)
-        // Only register if not already owned (first wins)
-        let mut already_owned = false
-        for i = 0; i < ownership.length(); i = i + 1 {
-          let (name, _) = ownership[i]
-          if name == type_name {
-            already_owned = true
-            break
-          }
-        }
-        if not(already_owned) && type_name != "" {
-          ownership.push((type_name, result.spec_name))
-        }
-      }
-    }
-  }
-  ownership
-}
-
-///|
-/// 型の所有者を取得
-fn get_type_owner(
-  ownership : Array[(String, String)],
-  type_name : String,
-) -> String {
-  for i = 0; i < ownership.length(); i = i + 1 {
-    let (name, owner) = ownership[i]
-    if name == type_name {
-      return owner
-    }
-  }
-  ""
-}
-
-///|
-/// 仕様が所有する定義のみをフィルタリング
-pub fn filter_definitions_by_owner(
-  definitions : Array[Definition],
-  spec_name : String,
-  ownership : Array[(String, String)],
-) -> Array[Definition] {
-  let filtered : Array[Definition] = []
-  for def in definitions {
-    match def {
-      // InterfaceMixin and Includes are always included (used for merging, not output)
-      InterfaceMixin(_) => filtered.push(def)
-      Includes(_) => filtered.push(def)
-      // Partials are included if their target type is owned by this spec
-      Partial(p) => {
-        let target_owner = get_type_owner(ownership, p.target)
-        if target_owner == spec_name {
-          filtered.push(def)
-        }
-      }
-      _ => {
-        let type_name = get_definition_name(def)
-        let owner = get_type_owner(ownership, type_name)
-
-        // Include only if this spec owns the type
-        if owner == spec_name {
-          filtered.push(def)
-        }
-      }
-    }
-  }
-  filtered
-}
-
-///|
-/// インターフェースの継承関係を解決
-/// 親のメンバーを子に展開する（循環継承の検出付き）
-fn resolve_interface_inheritance(
-  interfaces : Array[(String, InterfaceDef)],
-) -> Unit {
-  // 元の定義をコピー（継承解決前の状態を保持）
-  let original : Array[(String, InterfaceDef)] = []
-  for i = 0; i < interfaces.length(); i = i + 1 {
-    original.push(interfaces[i])
-  }
-
-  // 各インターフェースの継承を解決（元の定義から収集）
-  let mut resolved_count = 0
-  for i = 0; i < interfaces.length(); i = i + 1 {
-    let (name, iface) = interfaces[i]
-    match iface.inheritance {
-      Some(parent_name) => {
-        // 親のメンバーを収集（元の定義から、循環参照チェック付き）
-        let visited : Array[String] = [name]
-        let inherited_members = collect_inherited_interface_members(
-          original, // 元の定義を使う（展開前）
-           parent_name, visited,
-        )
-        if inherited_members.length() > 0 {
-          resolved_count = resolved_count + 1
-        }
-        // 親のメンバーを子の先頭に追加（子のメンバーが優先）
-        let combined = merge_interface_members(
-          inherited_members,
-          iface.members,
-          name + " (inherited)",
-        )
-        let new_iface : InterfaceDef = {
-          name: iface.name,
-          members: combined,
-          inheritance: iface.inheritance,
-          extended_attrs: iface.extended_attrs,
-        }
-        interfaces[i] = (name, new_iface)
-      }
-      None => ()
-    }
-  }
-  if resolved_count > 0 {
-    println(
-      "Resolved " +
-      resolved_count.to_string() +
-      " interface inheritance relationships",
-    )
-  }
-}
-
-///|
-/// 親インターフェースのメンバーを再帰的に収集
-fn collect_inherited_interface_members(
-  interfaces : Array[(String, InterfaceDef)],
-  parent_name : String,
-  visited : Array[String],
-) -> Array[InterfaceMember] {
-  // 循環継承の検出
-  for v in visited {
-    if v == parent_name {
-      println(
-        "Warning: Circular inheritance detected: " + parent_name + " - skipping",
-      )
-      return []
-    }
-  }
-
-  // 親インターフェースを検索
-  let mut parent_iface : InterfaceDef? = None
-  for i = 0; i < interfaces.length(); i = i + 1 {
-    let (name, iface) = interfaces[i]
-    if name == parent_name {
-      parent_iface = Some(iface)
-      break
-    }
-  }
-
-  // 親が見つからない場合は空配列
-  match parent_iface {
-    None => []
-    Some(iface) => {
-      // 親のさらに親のメンバーを再帰的に収集
-      let grandparent_members = match iface.inheritance {
-        Some(grandparent_name) => {
-          let new_visited : Array[String] = []
-          for v in visited {
-            new_visited.push(v)
-          }
-          new_visited.push(parent_name)
-          collect_inherited_interface_members(
-            interfaces, grandparent_name, new_visited,
-          )
-        }
-        None => []
-      }
-
-      // 祖先のメンバー + 親自身のメンバー（重複チェック付き）
-      let result : Array[InterfaceMember] = []
-      for mem in grandparent_members {
-        // 祖父母からの継承で重複がある場合はスキップ
-        let mem_name = get_interface_member_name(mem)
-        let mut is_duplicate = false
-        for existing in result {
-          if get_interface_member_name(existing) == mem_name {
-            is_duplicate = true
-            break
-          }
-        }
-        if not(is_duplicate) {
-          result.push(mem)
-        }
-      }
-      // 親のメンバーを追加（祖父と重複する場合は親を優先）
-      for mem in iface.members {
-        let mem_name = get_interface_member_name(mem)
-        let mut is_duplicate = false
-        for existing in result {
-          if get_interface_member_name(existing) == mem_name {
-            is_duplicate = true
-            break
-          }
-        }
-        if not(is_duplicate) {
-          result.push(mem)
-        }
-      }
-      result
-    }
-  }
-}
-
-///|
-/// Interface メンバーの名前を取得
-fn get_interface_member_name(m : InterfaceMember) -> String {
-  match m {
-    Operation(op) => op.name
-    Attribute(attr) => attr.name
-    Const(c) => c.name
-    Constructor(_) => "constructor"
-    Maplike(_) => "maplike"
-    Setlike(_) => "setlike"
-  }
-}
-
-///|
-/// Dictionary の継承関係を解決
-fn resolve_dictionary_inheritance(
-  dictionaries : Array[(String, DictionaryDef)],
-) -> Unit {
-  // 元の定義をコピー（継承解決前の状態を保持）
-  let original : Array[(String, DictionaryDef)] = []
-  for i = 0; i < dictionaries.length(); i = i + 1 {
-    original.push(dictionaries[i])
-  }
-
-  // 各 dictionary の継承を解決（元の定義から収集）
-  for i = 0; i < dictionaries.length(); i = i + 1 {
-    let (name, dict) = dictionaries[i]
-    match dict.inheritance {
-      Some(parent_name) => {
-        // 親のメンバーを収集（元の定義から、循環参照チェック付き）
-        let visited : Array[String] = [name]
-        let inherited_members = collect_inherited_dictionary_members(
-          original, // 元の定義を使う（展開前）
-           parent_name, visited,
-        )
-        // 親のメンバーを子の先頭に追加
-        let combined = merge_dictionary_members(inherited_members, dict.members)
-        let new_dict : DictionaryDef = {
-          name: dict.name,
-          members: combined,
-          inheritance: dict.inheritance,
-        }
-        dictionaries[i] = (name, new_dict)
-      }
-      None => ()
-    }
-  }
-}
-
-///|
-/// 親 dictionary のメンバーを再帰的に収集
-fn collect_inherited_dictionary_members(
-  dictionaries : Array[(String, DictionaryDef)],
-  parent_name : String,
-  visited : Array[String],
-) -> Array[DictionaryMember] {
-  // 循環継承の検出
-  for v in visited {
-    if v == parent_name {
-      println(
-        "Warning: Circular inheritance detected in dictionary: " +
-        parent_name +
-        " - skipping",
-      )
-      return []
-    }
-  }
-
-  // 親 dictionary を検索
-  let mut parent_dict : DictionaryDef? = None
-  for i = 0; i < dictionaries.length(); i = i + 1 {
-    let (name, dict) = dictionaries[i]
-    if name == parent_name {
-      parent_dict = Some(dict)
-      break
-    }
-  }
-
-  // 親が見つからない場合は空配列
-  match parent_dict {
-    None => []
-    Some(dict) => {
-      // 親のさらに親のメンバーを再帰的に収集
-      let grandparent_members = match dict.inheritance {
-        Some(grandparent_name) => {
-          let new_visited : Array[String] = []
-          for v in visited {
-            new_visited.push(v)
-          }
-          new_visited.push(parent_name)
-          collect_inherited_dictionary_members(
-            dictionaries, grandparent_name, new_visited,
-          )
-        }
-        None => []
-      }
-
-      // 祖先のメンバー + 親自身のメンバー（重複チェック付き）
-      let result : Array[DictionaryMember] = []
-      for mem in grandparent_members {
-        // 祖父母からの継承で重複がある場合はスキップ
-        let mut is_duplicate = false
-        for existing in result {
-          if existing.name == mem.name {
-            is_duplicate = true
-            break
-          }
-        }
-        if not(is_duplicate) {
-          result.push(mem)
-        }
-      }
-      // 親のメンバーを追加（祖父と重複する場合は親を優先）
-      for mem in dict.members {
-        let mut is_duplicate = false
-        for existing in result {
-          if existing.name == mem.name {
-            is_duplicate = true
-            break
-          }
-        }
-        if not(is_duplicate) {
-          result.push(mem)
-        }
-      }
-      result
-    }
-  }
 }
 
 ///|
@@ -1603,14 +847,15 @@ fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
   result.write_string("::from_fn(handler : (")
 
   // 引数の型リスト
-  let args_len = cb.arguments.length()
-  for i = 0; i < args_len; i = i + 1 {
-    let arg = cb.arguments[i]
-    if i > 0 {
-      result.write_string(", ")
-    }
-    result.write_string(idl_type_to_moonbit(arg.idl_type))
-  }
+  ignore(
+    cb.arguments.iter().fold(init=true, fn(first, arg) {
+      if not(first) {
+        result.write_string(", ")
+      }
+      result.write_string(idl_type_to_moonbit(arg.idl_type))
+      false
+    }),
+  )
 
   // 戻り値の型
   result.write_string(") -> ")

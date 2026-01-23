@@ -170,3 +170,78 @@ pub(all) struct ExtendedAttribute {
   name : String
   value : String?
 } derive(Show)
+
+///|
+/// inline Union の収集用型（Union 名 → メンバー型）
+pub struct InlineUnionCollector {
+  entries : Array[(String, Array[IdlType])]
+}
+
+///|
+/// 空のコレクタを作成
+pub fn InlineUnionCollector::new() -> InlineUnionCollector {
+  { entries: [] }
+}
+
+///|
+/// コレクタに追加
+pub fn InlineUnionCollector::push(
+  self : InlineUnionCollector,
+  entry : (String, Array[IdlType]),
+) -> Unit {
+  self.entries.push(entry)
+}
+
+///|
+/// コレクタのイテレーション用
+pub fn InlineUnionCollector::iter(
+  self : InlineUnionCollector,
+) -> Iter[(String, Array[IdlType])] {
+  self.entries.iter()
+}
+
+///|
+/// コレクタの長さ
+pub fn InlineUnionCollector::length(self : InlineUnionCollector) -> Int {
+  self.entries.length()
+}
+
+///|
+/// WebIDL 型を MoonBit 型に変換（シンプル版、Union は JsValue）
+pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
+  match self {
+    Primitive(name) => primitive_to_moonbit(name)
+    String => "String"
+    Void => "Unit"
+    Nullable(inner) => {
+      let inner_type = inner.to_moonbit_simple()
+      // 二重 nullable の場合は Nullable[T] に変換
+      if ends_with_question(inner_type) {
+        // T? が来た → Nullable[T] に変換
+        let base_type = remove_trailing_question(inner_type)
+        "Nullable[" + base_type + "]"
+      } else {
+        inner_type + "?"
+      }
+    }
+    Named(name) => {
+      // 小文字始まりの型名は JsValue に変換（object など無効な型名）
+      let first_char = get_first_char(name)
+      if first_char >= 'a' && first_char <= 'z' {
+        "JsValue"
+      } else {
+        name
+      }
+    }
+    Sequence(inner) => {
+      let inner_type = inner.to_moonbit_simple()
+      "Array[" + inner_type + "]"
+    }
+    Promise(inner) => {
+      let inner_type = inner.to_moonbit_simple()
+      "Promise[" + inner_type + "]"
+    }
+    Union(_) => "JsValue"
+    Any => "JsValue"
+  }
+}

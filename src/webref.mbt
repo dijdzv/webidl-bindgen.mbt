@@ -175,13 +175,9 @@ pub fn get_all_spec_names(specs : SpecsData) -> Array[String] {
 ///|
 /// ロード結果から全定義を統合
 pub fn merge_all_results(results : Array[SpecLoadResult]) -> Array[Definition] {
-  let all_definitions : Array[Definition] = []
-  for result in results {
-    if result.success {
-      for def in result.definitions {
-        all_definitions.push(def)
-      }
-    }
-  }
-  all_definitions
+  results
+    .iter()
+    .filter(fn(r) { r.success })
+    .flat_map(fn(r) { r.definitions.iter() })
+    .collect()
 }

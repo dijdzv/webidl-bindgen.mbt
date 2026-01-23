@@ -1,39 +1,5 @@
 // Interface binding 生成ロジック
 
-/// inline Union の収集用型（Union 名 → メンバー型）
-pub struct InlineUnionCollector {
-  entries : Array[(String, Array[IdlType])]
-}
-
-///|
-/// 空のコレクタを作成
-pub fn InlineUnionCollector::new() -> InlineUnionCollector {
-  { entries: [] }
-}
-
-///|
-/// コレクタに追加
-pub fn InlineUnionCollector::push(
-  self : InlineUnionCollector,
-  entry : (String, Array[IdlType])
-) -> Unit {
-  self.entries.push(entry)
-}
-
-///|
-/// コレクタのイテレーション用
-pub fn InlineUnionCollector::iter(
-  self : InlineUnionCollector
-) -> Iter[(String, Array[IdlType])] {
-  self.entries.iter()
-}
-
-///|
-/// コレクタの長さ
-pub fn InlineUnionCollector::length(self : InlineUnionCollector) -> Int {
-  self.entries.length()
-}
-
 ///|
 /// WebIDL 型を MoonBit 型に変換（inline Union を収集）
 pub fn idl_type_to_moonbit_collecting(
@@ -41,27 +7,13 @@ pub fn idl_type_to_moonbit_collecting(
   collector : InlineUnionCollector
 ) -> String {
   match idl_type {
-    Primitive(name) =>
-      // WebIDL プリミティブ → MoonBit
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "JsValue" // 未知の型はJsValue
-      }
+    Primitive(name) => primitive_to_moonbit(name)
     String => "String"
     Void => "Unit"
     Nullable(inner) => {
       let inner_type = idl_type_to_moonbit_collecting(inner, collector)
       // 二重 nullable を防ぐ
-      if str_ends_with_question(inner_type) {
+      if ends_with_question(inner_type) {
         inner_type
       } else {
         inner_type + "?"
@@ -69,7 +21,7 @@ pub fn idl_type_to_moonbit_collecting(
     }
     Named(name) => {
       // 小文字始まりの型名は JsValue に変換（object など無効な型名）
-      let first_char = get_str_first_char(name)
+      let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         "JsValue"
       } else {
@@ -105,32 +57,19 @@ pub fn idl_type_to_moonbit_collecting(
 /// WebIDL 型を MoonBit 型に変換（inline Union は生成名を返す）
 pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
   match idl_type {
-    Primitive(name) =>
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "JsValue"
-      }
+    Primitive(name) => primitive_to_moonbit(name)
     String => "String"
     Void => "Unit"
     Nullable(inner) => {
       let inner_type = idl_type_to_moonbit(inner)
-      if str_ends_with_question(inner_type) {
+      if ends_with_question(inner_type) {
         inner_type
       } else {
         inner_type + "?"
       }
     }
     Named(name) => {
-      let first_char = get_str_first_char(name)
+      let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         "JsValue"
       } else {
@@ -160,21 +99,24 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
 ///|
 /// inline Union の名前を生成（メンバー型から一意な名前を生成）
 fn generate_inline_union_name(members : Array[IdlType]) -> String {
-  let parts : Array[String] = []
-  for mem in members {
-    let part = get_union_member_name(mem)
-    if part != "" {
-      parts.push(part)
-    }
-  }
+  let parts : Array[String] = members
+    .iter()
+    .filter_map(fn(mem) {
+      let part = get_union_member_name(mem)
+      if part != "" { Some(part) } else { None }
+    })
+    .collect()
   // メンバー名を結合（例: StringOrCanvasGradientOrCanvasPattern）
   let result = StringBuilder::new()
-  for i, part in parts {
-    if i > 0 {
-      result.write_string("Or")
-    }
-    result.write_string(part)
-  }
+  ignore(
+    parts.iter().fold(init=true, fn(first, part) {
+      if not(first) {
+        result.write_string("Or")
+      }
+      result.write_string(part)
+      false
+    }),
+  )
   result.to_string()
 }
 
@@ -184,20 +126,18 @@ fn get_union_member_name(idl_type : IdlType) -> String {
   match idl_type {
     Primitive(name) =>
       match name {
+        // 文字列系は "String" にマップ
         "DOMString" | "USVString" | "ByteString" => "String"
-        "boolean" => "Bool"
-        "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" =>
-          "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        // その他のプリミティブ型も名前を持つように
-        _ => capitalize_first(name)
+        _ => {
+          let result = primitive_to_moonbit(name)
+          // 未知の型（JsValue）の場合は capitalize_first にフォールバック
+          if result == "JsValue" { capitalize_first(name) } else { result }
+        }
       }
     String => "String"
     Named(name) => {
       // 小文字始まりの場合は大文字化（bigint など）
-      let first_char = get_str_first_char(name)
+      let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         capitalize_first(name)
       } else {
@@ -240,119 +180,35 @@ fn get_union_member_name(idl_type : IdlType) -> String {
 ///|
 /// 文字列の最初の文字を大文字にする
 fn capitalize_first(s : String) -> String {
-  let result = StringBuilder::new()
-  let mut first = true
-  for c in s {
-    if first {
-      // 小文字なら大文字に変換
-      if c >= 'a' && c <= 'z' {
-        result.write_char((c.to_int() - 32).unsafe_to_char())
-      } else {
-        result.write_char(c)
-      }
-      first = false
-    } else {
-      result.write_char(c)
-    }
+  let chars = s.to_array()
+  if chars.is_empty() {
+    return ""
   }
-  result.to_string()
+  let first_char = chars[0]
+  // 小文字なら大文字に変換
+  let upper = if first_char >= 'a' && first_char <= 'z' {
+    (first_char.to_int() - 32).unsafe_to_char()
+  } else {
+    first_char
+  }
+  upper.to_string() + String::from_array(chars[1:])
 }
 
 ///|
 /// コレクタに指定名の Union が既に存在するかチェック
 fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
-  for entry in collector.iter() {
-    if entry.0 == name {
-      return true
-    }
-  }
-  false
+  collector.iter().any(fn(entry) { entry.0 == name })
 }
 
-///|
-/// 文字列が ? で終わるかチェック
-fn str_ends_with_question(s : String) -> Bool {
-  let mut last_char = ' '
-  for c in s {
-    last_char = c
-  }
-  last_char == '?'
-}
-
-///|
-/// 文字列の最初の文字を取得
-fn get_str_first_char(s : String) -> Char {
-  for c in s {
-    return c
-  }
-  ' '
-}
-
-///|
-/// 文字列が空かチェック
-fn is_empty_op_name(s : String) -> Bool {
-  for _ in s {
-    return false
-  }
-  true
-}
 
 ///|
 /// 文字列の先頭1文字を削除
 fn remove_leading_char(s : String) -> String {
-  if s.length() <= 1 {
+  let chars = s.to_array()
+  if chars.length() <= 1 {
     return ""
   }
-  // Build new string without first character
-  let result = StringBuilder::new()
-  let mut skip_first = true
-  for c in s {
-    if skip_first {
-      skip_first = false
-      continue
-    }
-    result.write_char(c)
-  }
-  result.to_string()
-}
-
-///|
-/// snake_case を変換（ハイフンもアンダースコアに変換）
-pub fn to_snake_case(name : String) -> String {
-  let result = StringBuilder::new()
-  let mut first = true
-  for c in name {
-    if c >= 'A' && c <= 'Z' {
-      if not(first) {
-        result.write_char('_')
-      }
-      // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
-      let lower_code = c.to_int() + 32
-      let lower = lower_code.unsafe_to_char()
-      result.write_char(lower)
-    } else if c == '-' {
-      // ハイフンはアンダースコアに変換
-      result.write_char('_')
-    } else {
-      result.write_char(c)
-    }
-    first = false
-  }
-  result.to_string()
-}
-
-///|
-/// enum マップから値リストを取得
-fn get_enum_values(
-  enum_map : Array[(String, Array[String])],
-  name : String,
-) -> Array[String]? {
-  for pair in enum_map {
-    if pair.0 == name {
-      return Some(pair.1)
-    }
-  }
-  None
+  String::from_array(chars[1:])
 }
 
 ///|
@@ -374,7 +230,7 @@ pub fn gen_static_operation_with_suffix(
   suffix : String,
 ) -> String {
   // 名前なしの特殊メソッドはスキップ
-  if is_empty_op_name(op.name) {
+  if op.name.is_empty() {
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
@@ -410,43 +266,17 @@ pub fn gen_static_operation_with_suffix(
     // 引数の型が enum かチェック
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // enum は配列ルックアップで文字列に変換
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // nullable enum も配列ルックアップ（null チェック付き）
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -608,7 +438,7 @@ pub fn gen_operation(
 ) -> String {
   // 名前なしの通常メソッドはスキップ
   // (special operation は gen_interface_binding で処理)
-  if is_empty_op_name(op.name) {
+  if op.name.is_empty() {
     return ""
   }
   let fn_name = escape_reserved(to_snake_case(op.name))
@@ -648,43 +478,17 @@ pub fn gen_operation(
     // 引数の型が enum かチェック
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // enum は配列ルックアップで文字列に変換
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // nullable enum も配列ルックアップ（null チェック付き）
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -713,41 +517,44 @@ pub fn gen_operation(
 ///|
 /// 同名operationをグループ化し、引数数でソート
 /// Map型の代わりに Array[(String, Array[OperationDef])] を返す
+///|
+/// Operation をグループに追加（既存グループがあれば追加、なければ新規作成）
+fn add_to_operation_group(
+  groups : Array[(String, Array[OperationDef])],
+  op : OperationDef,
+) -> Unit {
+  for i = 0; i < groups.length(); i = i + 1 {
+    let (name, ops) = groups[i]
+    if name == op.name {
+      ops.push(op)
+      groups[i] = (name, ops)
+      return
+    }
+  }
+  // 新しいグループを作成
+  groups.push((op.name, [op]))
+}
+
 pub fn group_operations_by_name(
   members : Array[InterfaceMember]
 ) -> Array[(String, Array[OperationDef])] {
   let groups : Array[(String, Array[OperationDef])] = []
 
   // Operation のみを抽出してグループ化
-  for mem in members {
+  members.iter().each(fn(mem) {
     match mem {
       Operation(op) => {
         // 空名のoperationはスキップ
-        if is_empty_op_name(op.name) {
-          continue
+        if op.name.is_empty() {
+          return
         }
 
-        // 既存のグループを探す
-        let mut found = false
-        for i = 0; i < groups.length(); i = i + 1 {
-          let (name, ops) = groups[i]
-          if name == op.name {
-            ops.push(op)
-            groups[i] = (name, ops)
-            found = true
-            break
-          }
-        }
-
-        // 新しいグループを作成
-        if not(found) {
-          let new_group : Array[OperationDef] = [op]
-          groups.push((op.name, new_group))
-        }
+        // 既存のグループを探すか新規作成
+        add_to_operation_group(groups, op)
       }
       _ => ()
     }
-  }
+  })
 
   // 各グループ内で「必須引数」数の少ない順にソート
   // optional引数を持つoperationは、最初のoptional引数の位置を必須引数数とする
@@ -884,42 +691,34 @@ pub fn gen_overload_suffix_from_all(args : Array[Argument]) -> String {
   }
 
   // 全引数のsnake_case名を収集
-  let result = StringBuilder::new()
-  result.write_string("_with")
-
-  for i = 0; i < len; i = i + 1 {
-    let arg = args[i]
+  let parts = args.iter().map(fn(arg) {
     let arg_name = to_snake_case(arg.name)
-    result.write_string("_")
-    result.write_string(arg_name)
-
     // 型名も追加（引数名だけでは区別できない場合のため）
     // シンプルな型（Named）の場合のみ追加
     match arg.idl_type {
-      Named(_) => {
-        result.write_string("_")
-        result.write_string(arg_type_to_snake_case(arg.idl_type))
-      }
-      _ => ()
+      Named(_) => arg_name + "_" + arg_type_to_snake_case(arg.idl_type)
+      _ => arg_name
     }
+  }).collect()
 
-    if i < len - 1 {
-      result.write_string("_and")
-    }
-  }
-
-  result.to_string()
+  "_with_" + parts.iter().fold(init="", fn(acc, part) {
+    if acc == "" { part } else { acc + "_and_" + part }
+  })
 }
 
 ///|
 /// optional引数の最初のインデックスを取得（なければ-1）
 fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
-  for i = 0; i < args.length(); i = i + 1 {
-    if args[i].optional {
-      return i
+  args.iter().fold(init=(-1, 0), fn(state, arg) {
+    let (found, i) = state
+    if found >= 0 {
+      state
+    } else if arg.optional {
+      (i, i + 1)
+    } else {
+      (-1, i + 1)
     }
-  }
-  -1
+  }).0
 }
 
 ///|
@@ -932,7 +731,7 @@ pub fn gen_operation_with_arg_count(
   arg_count : Int,
   fn_suffix : String,
 ) -> String {
-  if is_empty_op_name(op.name) {
+  if op.name.is_empty() {
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
@@ -974,41 +773,17 @@ pub fn gen_operation_with_arg_count(
     let arg_name = escape_reserved(to_snake_case(arg.name))
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -1044,7 +819,7 @@ pub fn gen_operation_variants(
 ) -> (String, Array[String]) {
   let result = StringBuilder::new()
   let fn_names : Array[String] = []
-  if is_empty_op_name(op.name) {
+  if op.name.is_empty() {
     return (result.to_string(), fn_names)
   }
   let first_optional = find_first_optional_arg_index(op.arguments)
@@ -1102,9 +877,7 @@ pub fn gen_overloaded_operations(
       ops[0],
       enum_map,
     )
-    for name in fn_names {
-      generated_methods.push(name)
-    }
+    fn_names.iter().each(fn(name) { generated_methods.push(name) })
     return code
   }
 
@@ -1339,38 +1112,23 @@ pub fn gen_const(interface_name : String, const_def : ConstDef) -> String {
 /// 定数名を snake_case に変換（UPPER_CASE → lower_case）
 /// WebGL の定数は既にアンダースコア区切りなので、単純に小文字化する
 fn const_name_to_snake_case(name : String) -> String {
-  let result = StringBuilder::new()
-  for c in name {
-    if c >= 'A' && c <= 'Z' {
-      // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
-      let lower_code = c.to_int() + 32
-      let lower = lower_code.unsafe_to_char()
-      result.write_char(lower)
-    } else {
-      result.write_char(c)
-    }
-  }
-  result.to_string()
+  String::from_array(
+    name.to_array().map(fn(c) {
+      if c >= 'A' && c <= 'Z' {
+        // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
+        (c.to_int() + 32).unsafe_to_char()
+      } else {
+        c
+      }
+    }),
+  )
 }
 
 ///|
 /// Const 用の型変換（GLenum, GLint などは全て Int）
 fn const_type_to_moonbit(idl_type : IdlType) -> String {
   match idl_type {
-    Primitive(name) =>
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "Int" // 未知のプリミティブは Int
-      }
+    Primitive(name) => primitive_to_moonbit(name)
     String => "String"
     Named(_) => "Int" // GLenum, GLint など WebGL 型は全て Int
     _ => "Int"
@@ -1381,7 +1139,7 @@ fn const_type_to_moonbit(idl_type : IdlType) -> String {
 /// 定数値のフォーマット
 fn format_const_value(value : String, moonbit_type : String) -> String {
   // 空文字列チェック
-  if is_empty_string(value) {
+  if value.is_empty() {
     return "0"
   }
 
@@ -1442,43 +1200,17 @@ pub fn gen_constructor(
     // 引数の型が enum かチェック
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // enum は配列ルックアップで文字列に変換
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // nullable enum も配列ルックアップ（null チェック付き）
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -1555,9 +1287,9 @@ pub fn gen_interface_binding(
         match op.special {
           Some("getter") | Some("setter") | Some("deleter") => {
             // 名前付き special operation は通常メソッドとして生成
-            if not(is_empty_op_name(op.name)) {
+            if not(op.name.is_empty()) {
               let fn_name = to_snake_case(op.name)
-              if not(array_contains(generated_methods, fn_name)) {
+              if not(generated_methods.contains(fn_name)) {
                 generated_methods.push(fn_name)
                 result.write_string(gen_operation(iface.name, op, enum_map))
                 result.write_string("\n")
@@ -1579,7 +1311,7 @@ pub fn gen_interface_binding(
               Some("deleter") => "delete"
               _ => ""
             }
-            if not(array_contains(generated_methods, special_name)) {
+            if not(generated_methods.contains(special_name)) {
               generated_methods.push(special_name)
               let code = gen_special_operation(
                 iface.name,
@@ -1598,21 +1330,29 @@ pub fn gen_interface_binding(
           Some("static") => {
             // static operation - handle overloads
             let base_fn_name = to_snake_case(op.name)
-            if not(array_contains(generated_methods, base_fn_name)) {
+            if not(generated_methods.contains(base_fn_name)) {
               // Find all static operations with this name
-              let group : Array[OperationDef] = []
-              for j = 0; j < operation_groups.length(); j = j + 1 {
-                let (name, ops) = operation_groups[j]
-                if name == op.name {
-                  for o in ops {
-                    match o.special {
-                      Some("static") => group.push(o)
-                      _ => ()
-                    }
+              let group : Array[OperationDef] = operation_groups
+                .iter()
+                .filter_map(fn(pair) {
+                  let (name, ops) = pair
+                  if name == op.name {
+                    Some(
+                      ops
+                        .iter()
+                        .filter(fn(o) {
+                          match o.special {
+                            Some("static") => true
+                            _ => false
+                          }
+                        })
+                        .collect(),
+                    )
+                  } else {
+                    None
                   }
-                  break
-                }
-              }
+                })
+                .fold(init=Array::new(), fn(_, ops) { ops })
 
               // Generate all overloads
               if group.length() > 0 {
@@ -1630,7 +1370,7 @@ pub fn gen_interface_binding(
           _ => {
             // 通常の operation - handle both overloads and optional arguments
             let base_fn_name = to_snake_case(op.name)
-            if not(array_contains(generated_methods, base_fn_name)) {
+            if not(generated_methods.contains(base_fn_name)) {
               // Find all operations with this name
               let mut group : Array[OperationDef] = []
               for j = 0; j < operation_groups.length(); j = j + 1 {
@@ -1655,14 +1395,14 @@ pub fn gen_interface_binding(
         }
       Attribute(attr) => {
         let getter_name = "get_" + to_snake_case(attr.name)
-        if not(array_contains(generated_methods, getter_name)) {
+        if not(generated_methods.contains(getter_name)) {
           generated_methods.push(getter_name)
           result.write_string(gen_attribute_getter(iface.name, attr))
           result.write_string("\n")
         }
         if not(attr.is_readonly) {
           let setter_name = "set_" + to_snake_case(attr.name)
-          if not(array_contains(generated_methods, setter_name)) {
+          if not(generated_methods.contains(setter_name)) {
             generated_methods.push(setter_name)
             let setter = gen_attribute_setter(iface.name, attr)
             if setter != "" {
@@ -1683,7 +1423,7 @@ pub fn gen_interface_binding(
         let interface_prefix = to_snake_case(iface.name)
         let const_suffix = const_name_to_snake_case(const_def.name)
         let const_name = interface_prefix + "_" + const_suffix
-        if not(array_contains(generated_constants, const_name)) {
+        if not(generated_constants.contains(const_name)) {
           generated_constants.push(const_name)
           result.write_string(gen_const(iface.name, const_def))
           result.write_string("\n")
@@ -1716,7 +1456,7 @@ fn gen_maplike_methods(
   let value_type = idl_type_to_moonbit(maplike.value_type)
 
   // get(key) -> value?
-  if not(array_contains(generated_methods, "get")) {
+  if not(generated_methods.contains("get")) {
     generated_methods.push("get")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -1731,7 +1471,7 @@ fn gen_maplike_methods(
   }
 
   // has(key) -> Bool
-  if not(array_contains(generated_methods, "has")) {
+  if not(generated_methods.contains("has")) {
     generated_methods.push("has")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -1746,7 +1486,7 @@ fn gen_maplike_methods(
   // If not readonly, add set/delete/clear
   if not(maplike.is_readonly) {
     // set(key, value) -> Unit
-    if not(array_contains(generated_methods, "set")) {
+    if not(generated_methods.contains("set")) {
       generated_methods.push("set")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1763,7 +1503,7 @@ fn gen_maplike_methods(
     }
 
     // delete(key) -> Bool
-    if not(array_contains(generated_methods, "delete")) {
+    if not(generated_methods.contains("delete")) {
       generated_methods.push("delete")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1776,7 +1516,7 @@ fn gen_maplike_methods(
     }
 
     // clear() -> Unit
-    if not(array_contains(generated_methods, "clear")) {
+    if not(generated_methods.contains("clear")) {
       generated_methods.push("clear")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1800,7 +1540,7 @@ fn gen_setlike_methods(
   let value_type = idl_type_to_moonbit(setlike.value_type)
 
   // has(value) -> Bool
-  if not(array_contains(generated_methods, "has")) {
+  if not(generated_methods.contains("has")) {
     generated_methods.push("has")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -1815,7 +1555,7 @@ fn gen_setlike_methods(
   // If not readonly, add add/delete/clear
   if not(setlike.is_readonly) {
     // add(value) -> Unit
-    if not(array_contains(generated_methods, "add")) {
+    if not(generated_methods.contains("add")) {
       generated_methods.push("add")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1828,7 +1568,7 @@ fn gen_setlike_methods(
     }
 
     // delete(value) -> Bool
-    if not(array_contains(generated_methods, "delete")) {
+    if not(generated_methods.contains("delete")) {
       generated_methods.push("delete")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1841,7 +1581,7 @@ fn gen_setlike_methods(
     }
 
     // clear() -> Unit
-    if not(array_contains(generated_methods, "clear")) {
+    if not(generated_methods.contains("clear")) {
       generated_methods.push("clear")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)

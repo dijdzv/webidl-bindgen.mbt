@@ -8,5 +8,11 @@ node_modules/
 bun.lock
 package-lock.json
 
+# Nix/devenv
+.devenv/
+.devenv.flake.nix
+.direnv/
+result
+
 # OS
 .DS_Store

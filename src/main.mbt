@@ -87,7 +87,7 @@ fn parse_args() -> CliArgs {
       if i < argc {
         output = get_argv_string(i)
       }
-    } else if input == "" && not(starts_with(arg, "--")) {
+    } else if input == "" && not(arg.has_prefix("--")) {
       // Positional argument as input
       input = arg
     }
@@ -127,62 +127,27 @@ fn print_usage() -> Unit {
 }
 
 ///|
-fn starts_with(s : String, prefix : String) -> Bool {
-  let mut prefix_len = 0
-  for _ in prefix {
-    prefix_len = prefix_len + 1
-  }
-  let mut s_len = 0
-  for _ in s {
-    s_len = s_len + 1
-  }
-  if prefix_len > s_len {
-    return false
-  }
-
-  // Compare character by character
-  let mut matched = true
-  let mut idx = 0
-  for c in s {
-    if idx >= prefix_len {
-      break
-    }
-    let mut prefix_idx = 0
-    for pc in prefix {
-      if prefix_idx == idx {
-        if c != pc {
-          matched = false
-          break
-        }
-        break
-      }
-      prefix_idx = prefix_idx + 1
-    }
-    if not(matched) {
-      break
-    }
-    idx = idx + 1
-  }
-  matched
-}
-
-///|
 /// カンマ区切り文字列を配列に分割
 fn split_by_comma(s : String) -> Array[String] {
-  let result : Array[String] = []
-  let current = StringBuilder::new()
-  for c in s {
-    if c == ',' {
-      let trimmed = current.to_string()
-      if trimmed != "" {
-        result.push(trimmed)
+  let (result, current) = s.iter().fold(
+    init=(Array::new(), StringBuilder::new()),
+    fn(state, c) {
+      let (result, current) = state
+      if c == ',' {
+        let trimmed = current.to_string()
+        if trimmed != "" {
+          result.push(trimmed)
+        }
+        current.reset()
+        (result, current)
+      } else if c != ' ' {
+        current.write_char(c)
+        (result, current)
+      } else {
+        state
       }
-      current.reset()
-    } else if c != ' ' {
-      current.write_char(c)
-    }
-  }
-
+    },
+  )
   // Add last segment
   let trimmed = current.to_string()
   if trimmed != "" {
@@ -248,13 +213,14 @@ async fn main {
     let results = load_multiple_specs(webref_specs, spec_names, true)
 
     // Report errors
-    let mut error_count = 0
-    for result in results {
+    let error_count = results.iter().fold(init=0, fn(count, result) {
       if not(result.success) {
         println("Warning: " + result.error_message)
-        error_count = error_count + 1
+        count + 1
+      } else {
+        count
       }
-    }
+    })
 
     // Per-spec mode: output each spec to separate file
     if args.per_spec {
@@ -291,7 +257,7 @@ async fn main {
       let primitive_typedef_map : Array[(String, IdlType)] = []
       // Build callback interface names list (for instanceof -> typeof === 'function')
       let callback_interface_names : Array[String] = []
-      for def in all_definitions {
+      all_definitions.iter().each(fn(def) {
         match def {
           Enum(e) => {
             global_enum_map.push((e.name, e.values))
@@ -310,31 +276,20 @@ async fn main {
           CallbackInterface(cb) => callback_interface_names.push(cb.name)
           _ => ()
         }
-      }
+      })
 
       // Collect inline Unions from all definitions
       let inline_unions = collect_inline_unions(all_definitions)
       // Add inline Union names to global_union_set
-      for entry in inline_unions.iter() {
+      inline_unions.iter().each(fn(entry) {
         let (name, _) = entry
-        let mut found = false
-        for existing in global_union_set {
-          if existing == name {
-            found = true
-            break
-          }
-        }
-        if not(found) {
+        if not(global_union_set.contains(name)) {
           global_union_set.push(name)
         }
-      }
+      })
 
       // Build set of defined type names from ownership map
-      let defined_types : Array[String] = []
-      for entry in ownership {
-        let (name, _) = entry
-        defined_types.push(name)
-      }
+      let defined_types = ownership.map(fn(entry) { entry.0 })
 
       // Write shared.mbt with common types, external declarations, and inline Unions
       let shared_code = gen_shared_types_with_externals(
@@ -351,47 +306,55 @@ async fn main {
       println("Writing: " + shared_file)
       write_file_sync(shared_file, shared_code)
 
-      // Count successful specs
-      let mut success_count = 0
-      let mut total_defs = 0
-
       // Collect all definitions from all specs (for cross-spec partial interface merging)
       let all_definitions = merge_all_results(results)
 
       // Output each spec to its own file
-      for result in results {
-        if result.success && result.definitions.length() > 0 {
-          // Filter ALL definitions (from all specs) to only include those owned by this spec
-          // This ensures partial interfaces from other specs are included
-          let owned_defs = filter_definitions_by_owner(
-            all_definitions,
-            result.spec_name,
-            ownership,
-          )
-          // Only write file if there are owned definitions
-          if owned_defs.length() > 0 {
-            let merged = merge_definitions(owned_defs)
-            let code = format_spec_output(
+      let (success_count, total_defs) = results.iter().fold(
+        init=(0, 0),
+        fn(counts, result) {
+          let (success_count, total_defs) = counts
+          if result.success && result.definitions.length() > 0 {
+            // Filter ALL definitions (from all specs) to only include those owned by this spec
+            // This ensures partial interfaces from other specs are included
+            let owned_defs = filter_definitions_by_owner(
+              all_definitions,
               result.spec_name,
-              merged,
-              global_enum_map,
-              global_union_set,
-              dictionary_names,
-              union_typedef_map~,
-              enum_names~,
-              primitive_typedef_map~,
-              callback_interface_names~,
+              ownership,
             )
-            // Skip empty files (no definitions after merging)
-            if merged.length() > 0 {
-              let output_file = path_join(args.output, result.spec_name + ".mbt")
-              write_file_sync(output_file, code)
-              success_count = success_count + 1
-              total_defs = total_defs + merged.length()
+            // Only write file if there are owned definitions
+            if owned_defs.length() > 0 {
+              let merged = merge_definitions(owned_defs)
+              let code = format_spec_output(
+                result.spec_name,
+                merged,
+                global_enum_map,
+                global_union_set,
+                dictionary_names,
+                union_typedef_map~,
+                enum_names~,
+                primitive_typedef_map~,
+                callback_interface_names~,
+              )
+              // Skip empty files (no definitions after merging)
+              if merged.length() > 0 {
+                let output_file = path_join(
+                  args.output,
+                  result.spec_name + ".mbt",
+                )
+                write_file_sync(output_file, code)
+                (success_count + 1, total_defs + merged.length())
+              } else {
+                counts
+              }
+            } else {
+              counts
             }
+          } else {
+            counts
           }
-        }
-      }
+        },
+      )
       println(
         "Done! Generated " +
         success_count.to_string() +
@@ -483,3 +446,4 @@ async fn main {
   write_file_sync(output_file, output_code)
   println("Done!")
 }
+
