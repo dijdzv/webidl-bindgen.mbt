@@ -6,12 +6,14 @@ pub fn lookup_enum(
   enum_map : Array[(String, Array[String])],
   name : String,
 ) -> Array[String]? {
-  for pair in enum_map {
-    if pair.0 == name {
-      return Some(pair.1)
-    }
-  }
-  None
+  enum_map
+    .iter()
+    .fold(init=Option::None, fn(result, pair) {
+      match result {
+        Some(_) => result
+        None => if pair.0 == name { Some(pair.1) } else { None }
+      }
+    })
 }
 
 ///|
@@ -20,14 +22,17 @@ pub fn lookup_enum(
 pub fn gen_enum_array_lookup(values : Array[String], index_expr : String) -> String {
   let result = StringBuilder::new()
   result.write_string("[")
-  for i = 0; i < values.length(); i = i + 1 {
-    if i > 0 {
-      result.write_string(", ")
-    }
-    result.write_string("'")
-    result.write_string(values[i])
-    result.write_string("'")
-  }
+  ignore(
+    values.iter().fold(init=true, fn(first, v) {
+      if not(first) {
+        result.write_string(", ")
+      }
+      result.write_string("'")
+      result.write_string(v)
+      result.write_string("'")
+      false
+    }),
+  )
   result.write_string("][")
   result.write_string(index_expr)
   result.write_string("]")
@@ -45,14 +50,17 @@ pub fn gen_nullable_enum_array_lookup(
   result.write_string("(")
   result.write_string(var_name)
   result.write_string(" != null ? [")
-  for i = 0; i < values.length(); i = i + 1 {
-    if i > 0 {
-      result.write_string(", ")
-    }
-    result.write_string("'")
-    result.write_string(values[i])
-    result.write_string("'")
-  }
+  ignore(
+    values.iter().fold(init=true, fn(first, v) {
+      if not(first) {
+        result.write_string(", ")
+      }
+      result.write_string("'")
+      result.write_string(v)
+      result.write_string("'")
+      false
+    }),
+  )
   result.write_string("][")
   result.write_string(var_name)
   result.write_string("] : null)")
