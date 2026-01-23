@@ -32,14 +32,7 @@ pub fn build_global_type_ownership(
         }
         let type_name = get_definition_name(def)
         // Only register if not already owned (first wins)
-        let mut already_owned = false
-        for i = 0; i < ownership.length(); i = i + 1 {
-          let (name, _) = ownership[i]
-          if name == type_name {
-            already_owned = true
-            break
-          }
-        }
+        let already_owned = ownership.iter().any(fn(pair) { pair.0 == type_name })
         if not(already_owned) && type_name != "" {
           ownership.push((type_name, result.spec_name))
         }
@@ -55,13 +48,17 @@ fn get_type_owner(
   ownership : Array[(String, String)],
   type_name : String,
 ) -> String {
-  for i = 0; i < ownership.length(); i = i + 1 {
-    let (name, owner) = ownership[i]
-    if name == type_name {
-      return owner
-    }
-  }
-  ""
+  ownership
+    .iter()
+    .fold(init="", fn(result, pair) {
+      if result != "" {
+        result
+      } else if pair.0 == type_name {
+        pair.1
+      } else {
+        ""
+      }
+    })
 }
 
 ///|
@@ -71,29 +68,17 @@ pub fn filter_definitions_by_owner(
   spec_name : String,
   ownership : Array[(String, String)],
 ) -> Array[Definition] {
-  let filtered : Array[Definition] = []
-  for def in definitions {
-    match def {
-      // InterfaceMixin and Includes are always included (used for merging, not output)
-      InterfaceMixin(_) => filtered.push(def)
-      Includes(_) => filtered.push(def)
-      // Partials are included if their target type is owned by this spec
-      Partial(p) => {
-        let target_owner = get_type_owner(ownership, p.target)
-        if target_owner == spec_name {
-          filtered.push(def)
-        }
+  definitions
+    .iter()
+    .filter(fn(def) {
+      match def {
+        // InterfaceMixin and Includes are always included (used for merging, not output)
+        InterfaceMixin(_) | Includes(_) => true
+        // Partials are included if their target type is owned by this spec
+        Partial(p) => get_type_owner(ownership, p.target) == spec_name
+        // Others are included only if this spec owns the type
+        _ => get_type_owner(ownership, get_definition_name(def)) == spec_name
       }
-      _ => {
-        let type_name = get_definition_name(def)
-        let owner = get_type_owner(ownership, type_name)
-
-        // Include only if this spec owns the type
-        if owner == spec_name {
-          filtered.push(def)
-        }
-      }
-    }
-  }
-  filtered
+    })
+    .collect()
 }
