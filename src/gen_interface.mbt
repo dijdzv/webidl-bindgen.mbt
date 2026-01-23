@@ -517,41 +517,44 @@ pub fn gen_operation(
 ///|
 /// 同名operationをグループ化し、引数数でソート
 /// Map型の代わりに Array[(String, Array[OperationDef])] を返す
+///|
+/// Operation をグループに追加（既存グループがあれば追加、なければ新規作成）
+fn add_to_operation_group(
+  groups : Array[(String, Array[OperationDef])],
+  op : OperationDef,
+) -> Unit {
+  for i = 0; i < groups.length(); i = i + 1 {
+    let (name, ops) = groups[i]
+    if name == op.name {
+      ops.push(op)
+      groups[i] = (name, ops)
+      return
+    }
+  }
+  // 新しいグループを作成
+  groups.push((op.name, [op]))
+}
+
 pub fn group_operations_by_name(
   members : Array[InterfaceMember]
 ) -> Array[(String, Array[OperationDef])] {
   let groups : Array[(String, Array[OperationDef])] = []
 
   // Operation のみを抽出してグループ化
-  for mem in members {
+  members.iter().each(fn(mem) {
     match mem {
       Operation(op) => {
         // 空名のoperationはスキップ
         if op.name.is_empty() {
-          continue
+          return
         }
 
-        // 既存のグループを探す
-        let mut found = false
-        for i = 0; i < groups.length(); i = i + 1 {
-          let (name, ops) = groups[i]
-          if name == op.name {
-            ops.push(op)
-            groups[i] = (name, ops)
-            found = true
-            break
-          }
-        }
-
-        // 新しいグループを作成
-        if not(found) {
-          let new_group : Array[OperationDef] = [op]
-          groups.push((op.name, new_group))
-        }
+        // 既存のグループを探すか新規作成
+        add_to_operation_group(groups, op)
       }
       _ => ()
     }
-  }
+  })
 
   // 各グループ内で「必須引数」数の少ない順にソート
   // optional引数を持つoperationは、最初のoptional引数の位置を必須引数数とする
@@ -688,42 +691,34 @@ pub fn gen_overload_suffix_from_all(args : Array[Argument]) -> String {
   }
 
   // 全引数のsnake_case名を収集
-  let result = StringBuilder::new()
-  result.write_string("_with")
-
-  for i = 0; i < len; i = i + 1 {
-    let arg = args[i]
+  let parts = args.iter().map(fn(arg) {
     let arg_name = to_snake_case(arg.name)
-    result.write_string("_")
-    result.write_string(arg_name)
-
     // 型名も追加（引数名だけでは区別できない場合のため）
     // シンプルな型（Named）の場合のみ追加
     match arg.idl_type {
-      Named(_) => {
-        result.write_string("_")
-        result.write_string(arg_type_to_snake_case(arg.idl_type))
-      }
-      _ => ()
+      Named(_) => arg_name + "_" + arg_type_to_snake_case(arg.idl_type)
+      _ => arg_name
     }
+  }).collect()
 
-    if i < len - 1 {
-      result.write_string("_and")
-    }
-  }
-
-  result.to_string()
+  "_with_" + parts.iter().fold(init="", fn(acc, part) {
+    if acc == "" { part } else { acc + "_and_" + part }
+  })
 }
 
 ///|
 /// optional引数の最初のインデックスを取得（なければ-1）
 fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
-  for i = 0; i < args.length(); i = i + 1 {
-    if args[i].optional {
-      return i
+  args.iter().fold(init=(-1, 0), fn(state, arg) {
+    let (found, i) = state
+    if found >= 0 {
+      state
+    } else if arg.optional {
+      (i, i + 1)
+    } else {
+      (-1, i + 1)
     }
-  }
-  -1
+  }).0
 }
 
 ///|

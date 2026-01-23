@@ -21,26 +21,22 @@ pub fn gen_dictionary(
   result = result + "pub struct "
   result = result + dict.name
   result = result + " {\n"
-  for mem in dict.members {
-    result = result + "  "
-    result = result + field_name_to_moonbit(mem.name)
-    result = result + " : "
-
+  result = dict.members.iter().fold(init=result, fn(acc, mem) {
     let moonbit_type = mem.idl_type.to_moonbit_simple()
     // オプショナルフィールド対応
-    if not(mem.required) {
+    let type_str = if not(mem.required) {
       // 二重 nullable の場合（型がすでに ? で終わる）は Nullable[T] に変換
       if ends_with_question(moonbit_type) {
         let base_type = remove_trailing_question(moonbit_type)
-        result = result + "Nullable[" + base_type + "]"
+        "Nullable[" + base_type + "]"
       } else {
-        result = result + moonbit_type + "?"
+        moonbit_type + "?"
       }
     } else {
-      result = result + moonbit_type
+      moonbit_type
     }
-    result = result + "\n"
-  }
+    acc + "  " + field_name_to_moonbit(mem.name) + " : " + type_str + "\n"
+  })
   result = result + "}\n\n"
 
   // デフォルトコンストラクタ生成
@@ -56,27 +52,20 @@ pub fn gen_dictionary(
   result = result + "  "
   result = result + dict.name
   result = result + "::{\n"
-  for mem in dict.members {
-    result = result + "    "
-    result = result + field_name_to_moonbit(mem.name)
-    result = result + ": "
-    if not(mem.required) {
+  result = dict.members.iter().fold(init=result, fn(acc, mem) {
+    let value = if not(mem.required) {
       // Nullable[T] 型の場合は Nullable::Undefined を使用
       let moonbit_type = mem.idl_type.to_moonbit_simple()
-      if ends_with_question(moonbit_type) {
-        result = result + "Nullable::Undefined"
-      } else {
-        result = result + "None"
-      }
+      if ends_with_question(moonbit_type) { "Nullable::Undefined" } else { "None" }
     } else {
       // デフォルト値があれば使用
       match mem.default_value {
-        Some(v) => result = result + v
+        Some(v) => v
         None => {
           // 型に応じたデフォルト値
           // Note: Named型には適切なデフォルト値がないため
           // この dictionary は required フィールドのデフォルト生成をスキップ
-          let default_val = match mem.idl_type {
+          match mem.idl_type {
             Primitive("boolean") => "false"
             Primitive(_) => "0"
             String => "\"\""
@@ -88,12 +77,11 @@ pub fn gen_dictionary(
               // @json.from_json などで初期化する必要がある
               "panic()"
           }
-          result = result + default_val
         }
       }
     }
-    result = result + ",\n"
-  }
+    acc + "    " + field_name_to_moonbit(mem.name) + ": " + value + ",\n"
+  })
   result = result + "  }\n"
   result = result + "}\n\n"
 
@@ -106,38 +94,22 @@ pub fn gen_dictionary(
   result = result + ") -> JsValue =\n"
   result = result + "  #| (self) => ({\n"
   let members_len = dict.members.length()
-  let mut idx = 0
-  for mem in dict.members {
+  result = dict.members.iter().fold(init=(result, 0), fn(state, mem) {
+    let (acc, idx) = state
     let moonbit_name = field_name_to_moonbit(mem.name)
-    result = result + "  #|   "
-    // JS側では元の名前を使用
-    result = result + mem.name
-    result = result + ": "
-
     // Nullable[T] 型のフィールドかチェック
     let moonbit_type = mem.idl_type.to_moonbit_simple()
     let is_nullable_type = not(mem.required) && ends_with_question(moonbit_type)
-
-    if is_nullable_type {
+    let value_expr = if is_nullable_type {
       // Nullable[T] フィールドの場合は特別な JS 式を生成
-      let value_expr = gen_nullable_type_field_expr(
-        mem.idl_type, moonbit_name, enum_map, union_set,
-      )
-      result = result + value_expr
+      gen_nullable_type_field_expr(mem.idl_type, moonbit_name, enum_map, union_set)
     } else {
       // 通常のフィールド（enum 変換を含む）
-      let value_expr = gen_field_value_expr(
-        mem.idl_type, moonbit_name, enum_map, union_set,
-      )
-      result = result + value_expr
+      gen_field_value_expr(mem.idl_type, moonbit_name, enum_map, union_set)
     }
-
-    if idx < members_len - 1 {
-      result = result + ","
-    }
-    result = result + "\n"
-    idx = idx + 1
-  }
+    let comma = if idx < members_len - 1 { "," } else { "" }
+    (acc + "  #|   " + mem.name + ": " + value_expr + comma + "\n", idx + 1)
+  }).0
   result = result + "  #| })\n\n"
   result
 }
@@ -331,13 +303,11 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
   result = result + "pub(all) enum "
   result = result + enum_def.name
   result = result + " {\n"
-  for value in enum_def.values {
+  result = enum_def.values.iter().fold(init=result, fn(acc, value) {
     // 値をPascalCaseに変換
     let variant = to_pascal_case(value)
-    result = result + "  "
-    result = result + variant
-    result = result + "\n"
-  }
+    acc + "  " + variant + "\n"
+  })
   result = result + "}\n\n"
 
   // 文字列への変換関数
@@ -348,16 +318,10 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
   result = result + enum_def.name
   result = result + ") -> String {\n"
   result = result + "  match self {\n"
-  for value in enum_def.values {
+  result = enum_def.values.iter().fold(init=result, fn(acc, value) {
     let variant = to_pascal_case(value)
-    result = result + "    "
-    result = result + enum_def.name
-    result = result + "::"
-    result = result + variant
-    result = result + " => \""
-    result = result + value
-    result = result + "\"\n"
-  }
+    acc + "    " + enum_def.name + "::" + variant + " => \"" + value + "\"\n"
+  })
   result = result + "  }\n"
   result = result + "}\n\n"
 
@@ -369,16 +333,10 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
   result = result + enum_def.name
   result = result + "? {\n"
   result = result + "  match s {\n"
-  for value in enum_def.values {
+  result = enum_def.values.iter().fold(init=result, fn(acc, value) {
     let variant = to_pascal_case(value)
-    result = result + "    \""
-    result = result + value
-    result = result + "\" => Some("
-    result = result + enum_def.name
-    result = result + "::"
-    result = result + variant
-    result = result + ")\n"
-  }
+    acc + "    \"" + value + "\" => Some(" + enum_def.name + "::" + variant + ")\n"
+  })
   result = result + "    _ => None\n"
   result = result + "  }\n"
   result = result + "}\n"
@@ -475,15 +433,13 @@ pub fn gen_typedef(
       result = result + ") -> JsValue =\n  #| (self) => self\n\n"
 
       // ファクトリ関数（各メンバー型から Union 型を作成）
-      for mem in members {
+      result = members.iter().fold(init=result, fn(acc, mem) {
         let factory = gen_union_factory(typedef_def.name, mem)
-        if factory != "" {
-          result = result + factory
-        }
-      }
+        if factory != "" { acc + factory } else { acc }
+      })
 
       // is_* チェック関数（Union の中身を判定）
-      for mem in members {
+      result = members.iter().fold(init=result, fn(acc, mem) {
         let is_check = gen_union_is_check(
           typedef_def.name,
           mem,
@@ -493,13 +449,11 @@ pub fn gen_typedef(
           primitive_typedef_map~,
           callback_interface_names~,
         )
-        if is_check != "" {
-          result = result + is_check
-        }
-      }
+        if is_check != "" { acc + is_check } else { acc }
+      })
 
       // as_* 変換関数（Union から具体型を取得）
-      for mem in members {
+      result = members.iter().fold(init=result, fn(acc, mem) {
         let as_cast = gen_union_as_cast(
           typedef_def.name,
           mem,
@@ -509,10 +463,8 @@ pub fn gen_typedef(
           primitive_typedef_map~,
           callback_interface_names~,
         )
-        if as_cast != "" {
-          result = result + as_cast
-        }
-      }
+        if as_cast != "" { acc + as_cast } else { acc }
+      })
     }
     _ => {
       // 非 Union 型は従来通り type alias
@@ -739,48 +691,76 @@ fn get_js_type_check(
         return "typeof self === 'string'"
       }
       // プリミティブtypedefは解決後の型でチェック
-      for entry in primitive_typedef_map {
-        let (typedef_name, resolved_type) = entry
-        if typedef_name == name {
-          return get_js_type_check(
-            resolved_type,
-            dictionary_names,
-            union_typedef_map~,
-            enum_names~,
-            primitive_typedef_map~,
-            callback_interface_names~,
-          )
-        }
+      let primitive_check = primitive_typedef_map.iter().fold(
+        init=(None : String?),
+        fn(found, entry) {
+          match found {
+            Some(_) => found
+            None => {
+              let (typedef_name, resolved_type) = entry
+              if typedef_name == name {
+                Some(
+                  get_js_type_check(
+                    resolved_type,
+                    dictionary_names,
+                    union_typedef_map~,
+                    enum_names~,
+                    primitive_typedef_map~,
+                    callback_interface_names~,
+                  ),
+                )
+              } else {
+                None
+              }
+            }
+          }
+        },
+      )
+      match primitive_check {
+        Some(check) => return check
+        None => ()
       }
       // Dictionary型はinstanceofが使えないのでtypeofでオブジェクトチェック
       if dictionary_names.contains(name) {
         return "typeof self === 'object' && self !== null"
       }
       // Union typedef はJSにクラスが存在しないので構成要素を展開
-      for entry in union_typedef_map {
-        let (typedef_name, members) = entry
-        if typedef_name == name {
-          // 構成要素それぞれのチェックを OR で結合
-          let checks : Array[String] = []
-          for mem in members {
-            let check = get_js_type_check(
-              mem,
-              dictionary_names,
-              union_typedef_map~,
-              enum_names~,
-              primitive_typedef_map~,
-              callback_interface_names~,
-            )
-            if check != "" {
-              checks.push(check)
+      let union_check = union_typedef_map.iter().fold(
+        init=(None : String?),
+        fn(found, entry) {
+          match found {
+            Some(_) => found
+            None => {
+              let (typedef_name, members) = entry
+              if typedef_name == name {
+                // 構成要素それぞれのチェックを OR で結合
+                let checks = members.iter().filter_map(fn(mem) {
+                  let check = get_js_type_check(
+                    mem,
+                    dictionary_names,
+                    union_typedef_map~,
+                    enum_names~,
+                    primitive_typedef_map~,
+                    callback_interface_names~,
+                  )
+                  if check != "" { Some(check) } else { None }
+                }).collect()
+                if checks.length() > 0 {
+                  Some(checks.iter().collect().join(" || "))
+                } else {
+                  // チェックできない場合は常にtrue（型安全性を犠牲にする）
+                  Some("true")
+                }
+              } else {
+                None
+              }
             }
           }
-          if checks.length() > 0 {
-            return checks.iter().collect().join(" || ")
-          }
-          // チェックできない場合は常にtrue（型安全性を犠牲にする）
-          return "true"
-        }
+        },
+      )
+      match union_check {
+        Some(check) => return check
+        None => ()
       }
       // 通常のInterface型
       "self instanceof " + name
