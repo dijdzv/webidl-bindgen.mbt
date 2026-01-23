@@ -1,39 +1,5 @@
 // Interface binding 生成ロジック
 
-/// inline Union の収集用型（Union 名 → メンバー型）
-pub struct InlineUnionCollector {
-  entries : Array[(String, Array[IdlType])]
-}
-
-///|
-/// 空のコレクタを作成
-pub fn InlineUnionCollector::new() -> InlineUnionCollector {
-  { entries: [] }
-}
-
-///|
-/// コレクタに追加
-pub fn InlineUnionCollector::push(
-  self : InlineUnionCollector,
-  entry : (String, Array[IdlType])
-) -> Unit {
-  self.entries.push(entry)
-}
-
-///|
-/// コレクタのイテレーション用
-pub fn InlineUnionCollector::iter(
-  self : InlineUnionCollector
-) -> Iter[(String, Array[IdlType])] {
-  self.entries.iter()
-}
-
-///|
-/// コレクタの長さ
-pub fn InlineUnionCollector::length(self : InlineUnionCollector) -> Int {
-  self.entries.length()
-}
-
 ///|
 /// WebIDL 型を MoonBit 型に変換（inline Union を収集）
 pub fn idl_type_to_moonbit_collecting(
@@ -61,7 +27,7 @@ pub fn idl_type_to_moonbit_collecting(
     Nullable(inner) => {
       let inner_type = idl_type_to_moonbit_collecting(inner, collector)
       // 二重 nullable を防ぐ
-      if str_ends_with_question(inner_type) {
+      if ends_with_question(inner_type) {
         inner_type
       } else {
         inner_type + "?"
@@ -69,7 +35,7 @@ pub fn idl_type_to_moonbit_collecting(
     }
     Named(name) => {
       // 小文字始まりの型名は JsValue に変換（object など無効な型名）
-      let first_char = get_str_first_char(name)
+      let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         "JsValue"
       } else {
@@ -123,14 +89,14 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
     Void => "Unit"
     Nullable(inner) => {
       let inner_type = idl_type_to_moonbit(inner)
-      if str_ends_with_question(inner_type) {
+      if ends_with_question(inner_type) {
         inner_type
       } else {
         inner_type + "?"
       }
     }
     Named(name) => {
-      let first_char = get_str_first_char(name)
+      let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         "JsValue"
       } else {
@@ -197,7 +163,7 @@ fn get_union_member_name(idl_type : IdlType) -> String {
     String => "String"
     Named(name) => {
       // 小文字始まりの場合は大文字化（bigint など）
-      let first_char = get_str_first_char(name)
+      let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         capitalize_first(name)
       } else {
@@ -269,33 +235,6 @@ fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
   false
 }
 
-///|
-/// 文字列が ? で終わるかチェック
-fn str_ends_with_question(s : String) -> Bool {
-  let mut last_char = ' '
-  for c in s {
-    last_char = c
-  }
-  last_char == '?'
-}
-
-///|
-/// 文字列の最初の文字を取得
-fn get_str_first_char(s : String) -> Char {
-  for c in s {
-    return c
-  }
-  ' '
-}
-
-///|
-/// 文字列が空かチェック
-fn is_empty_op_name(s : String) -> Bool {
-  for _ in s {
-    return false
-  }
-  true
-}
 
 ///|
 /// 文字列の先頭1文字を削除
@@ -317,45 +256,6 @@ fn remove_leading_char(s : String) -> String {
 }
 
 ///|
-/// snake_case を変換（ハイフンもアンダースコアに変換）
-pub fn to_snake_case(name : String) -> String {
-  let result = StringBuilder::new()
-  let mut first = true
-  for c in name {
-    if c >= 'A' && c <= 'Z' {
-      if not(first) {
-        result.write_char('_')
-      }
-      // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
-      let lower_code = c.to_int() + 32
-      let lower = lower_code.unsafe_to_char()
-      result.write_char(lower)
-    } else if c == '-' {
-      // ハイフンはアンダースコアに変換
-      result.write_char('_')
-    } else {
-      result.write_char(c)
-    }
-    first = false
-  }
-  result.to_string()
-}
-
-///|
-/// enum マップから値リストを取得
-fn get_enum_values(
-  enum_map : Array[(String, Array[String])],
-  name : String,
-) -> Array[String]? {
-  for pair in enum_map {
-    if pair.0 == name {
-      return Some(pair.1)
-    }
-  }
-  None
-}
-
-///|
 /// Static Operation から extern js fn を生成
 pub fn gen_static_operation(
   interface_name : String,
@@ -374,7 +274,7 @@ pub fn gen_static_operation_with_suffix(
   suffix : String,
 ) -> String {
   // 名前なしの特殊メソッドはスキップ
-  if is_empty_op_name(op.name) {
+  if is_empty_string(op.name) {
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
@@ -410,43 +310,17 @@ pub fn gen_static_operation_with_suffix(
     // 引数の型が enum かチェック
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // enum は配列ルックアップで文字列に変換
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // nullable enum も配列ルックアップ（null チェック付き）
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -608,7 +482,7 @@ pub fn gen_operation(
 ) -> String {
   // 名前なしの通常メソッドはスキップ
   // (special operation は gen_interface_binding で処理)
-  if is_empty_op_name(op.name) {
+  if is_empty_string(op.name) {
     return ""
   }
   let fn_name = escape_reserved(to_snake_case(op.name))
@@ -648,43 +522,17 @@ pub fn gen_operation(
     // 引数の型が enum かチェック
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // enum は配列ルックアップで文字列に変換
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // nullable enum も配列ルックアップ（null チェック付き）
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -723,7 +571,7 @@ pub fn group_operations_by_name(
     match mem {
       Operation(op) => {
         // 空名のoperationはスキップ
-        if is_empty_op_name(op.name) {
+        if is_empty_string(op.name) {
           continue
         }
 
@@ -932,7 +780,7 @@ pub fn gen_operation_with_arg_count(
   arg_count : Int,
   fn_suffix : String,
 ) -> String {
-  if is_empty_op_name(op.name) {
+  if is_empty_string(op.name) {
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
@@ -974,41 +822,17 @@ pub fn gen_operation_with_arg_count(
     let arg_name = escape_reserved(to_snake_case(arg.name))
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -1044,7 +868,7 @@ pub fn gen_operation_variants(
 ) -> (String, Array[String]) {
   let result = StringBuilder::new()
   let fn_names : Array[String] = []
-  if is_empty_op_name(op.name) {
+  if is_empty_string(op.name) {
     return (result.to_string(), fn_names)
   }
   let first_optional = find_first_optional_arg_index(op.arguments)
@@ -1442,43 +1266,17 @@ pub fn gen_constructor(
     // 引数の型が enum かチェック
     match arg.idl_type {
       Named(type_name) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // enum は配列ルックアップで文字列に変換
-            js_call_args.write_string("[")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("]")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
           None => js_call_args.write_string(arg_name)
         }
       Nullable(Named(type_name)) =>
-        match get_enum_values(enum_map, type_name) {
-          Some(values) => {
-            // nullable enum も配列ルックアップ（null チェック付き）
-            js_call_args.write_string("(")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string(" != null ? [")
-            for j = 0; j < values.length(); j = j + 1 {
-              if j > 0 {
-                js_call_args.write_string(", ")
-              }
-              js_call_args.write_string("'")
-              js_call_args.write_string(values[j])
-              js_call_args.write_string("'")
-            }
-            js_call_args.write_string("][")
-            js_call_args.write_string(arg_name)
-            js_call_args.write_string("] : null)")
-          }
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
           None => js_call_args.write_string(arg_name)
         }
       _ => js_call_args.write_string(arg_name)
@@ -1555,7 +1353,7 @@ pub fn gen_interface_binding(
         match op.special {
           Some("getter") | Some("setter") | Some("deleter") => {
             // 名前付き special operation は通常メソッドとして生成
-            if not(is_empty_op_name(op.name)) {
+            if not(is_empty_string(op.name)) {
               let fn_name = to_snake_case(op.name)
               if not(array_contains(generated_methods, fn_name)) {
                 generated_methods.push(fn_name)

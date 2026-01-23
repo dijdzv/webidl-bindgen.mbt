@@ -1,107 +1,6 @@
 // Dictionary/Enum binding 生成ロジック
 
 ///|
-/// enum マップから値リストを取得（Dictionary 生成用）
-fn lookup_enum_values(
-  enum_map : Array[(String, Array[String])],
-  name : String,
-) -> Array[String]? {
-  for pair in enum_map {
-    if pair.0 == name {
-      return Some(pair.1)
-    }
-  }
-  None
-}
-
-///|
-/// WebIDL 型を MoonBit 型に変換（gen_interface.mbt と共通だが重複定義）
-fn type_to_moonbit(idl_type : IdlType) -> String {
-  match idl_type {
-    Primitive(name) =>
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "JsValue"
-      }
-    String => "String"
-    Void => "Unit"
-    Nullable(inner) => {
-      let inner_type = type_to_moonbit(inner)
-      // 二重 nullable の場合は Nullable[T] に変換
-      if ends_with_question(inner_type) {
-        // T? が来た → Nullable[T] に変換
-        let base_type = remove_trailing_question(inner_type)
-        "Nullable[" + base_type + "]"
-      } else {
-        inner_type + "?"
-      }
-    }
-    Named(name) => {
-      // 小文字始まりの型名は JsValue に変換（object など無効な型名）
-      let first_char = get_first_char_types(name)
-      if first_char >= 'a' && first_char <= 'z' {
-        "JsValue"
-      } else {
-        name
-      }
-    }
-    Sequence(inner) => {
-      let inner_type = type_to_moonbit(inner)
-      "Array[" + inner_type + "]"
-    }
-    Promise(inner) => {
-      let inner_type = type_to_moonbit(inner)
-      "Promise[" + inner_type + "]"
-    }
-    Union(_) => "JsValue"
-    Any => "JsValue"
-  }
-}
-
-///|
-/// 文字列が ? で終わるかチェック
-fn ends_with_question(s : String) -> Bool {
-  let mut last_char = ' '
-  for c in s {
-    last_char = c
-  }
-  last_char == '?'
-}
-
-///|
-/// 文字列の末尾の ? を削除
-fn remove_trailing_question(s : String) -> String {
-  let result = StringBuilder::new()
-  let chars : Array[Char] = []
-  for c in s {
-    chars.push(c)
-  }
-  // 最後の文字を除いて追加
-  for i = 0; i < chars.length() - 1; i = i + 1 {
-    result.write_char(chars[i])
-  }
-  result.to_string()
-}
-
-///|
-/// 文字列の最初の文字を取得
-fn get_first_char_types(s : String) -> Char {
-  for c in s {
-    return c
-  }
-  ' '
-}
-
-///|
 /// Dictionary から MoonBit struct を生成
 pub fn gen_dictionary(
   dict : DictionaryDef,
@@ -127,7 +26,7 @@ pub fn gen_dictionary(
     result = result + field_name_to_moonbit(mem.name)
     result = result + " : "
 
-    let moonbit_type = type_to_moonbit(mem.idl_type)
+    let moonbit_type = mem.idl_type.to_moonbit_simple()
     // オプショナルフィールド対応
     if not(mem.required) {
       // 二重 nullable の場合（型がすでに ? で終わる）は Nullable[T] に変換
@@ -163,7 +62,7 @@ pub fn gen_dictionary(
     result = result + ": "
     if not(mem.required) {
       // Nullable[T] 型の場合は Nullable::Undefined を使用
-      let moonbit_type = type_to_moonbit(mem.idl_type)
+      let moonbit_type = mem.idl_type.to_moonbit_simple()
       if ends_with_question(moonbit_type) {
         result = result + "Nullable::Undefined"
       } else {
@@ -216,7 +115,7 @@ pub fn gen_dictionary(
     result = result + ": "
 
     // Nullable[T] 型のフィールドかチェック
-    let moonbit_type = type_to_moonbit(mem.idl_type)
+    let moonbit_type = mem.idl_type.to_moonbit_simple()
     let is_nullable_type = not(mem.required) && ends_with_question(moonbit_type)
 
     if is_nullable_type {
@@ -254,7 +153,7 @@ fn gen_field_value_expr(
   match idl_type {
     // 非 nullable Named フィールド（enum または Union）
     Named(type_name) =>
-      match lookup_enum_values(enum_map, type_name) {
+      match lookup_enum(enum_map, type_name) {
         Some(values) => gen_enum_lookup(field_name, values)
         None =>
           // Union 型の場合は .to_js_value() を呼ぶ
@@ -266,7 +165,7 @@ fn gen_field_value_expr(
       }
     // nullable Named フィールド（enum または Union）
     Nullable(Named(type_name)) =>
-      match lookup_enum_values(enum_map, type_name) {
+      match lookup_enum(enum_map, type_name) {
         Some(values) => gen_nullable_enum_lookup(field_name, values)
         None =>
           // Nullable Union 型の場合は特別処理
@@ -323,7 +222,7 @@ fn gen_nullable_field_expr(
   // 内部型が enum または Union の場合は変換が必要
   match inner_type {
     Named(type_name) =>
-      match lookup_enum_values(enum_map, type_name) {
+      match lookup_enum(enum_map, type_name) {
         Some(values) => {
           result.write_string("[")
           for i = 0; i < values.length(); i = i + 1 {
@@ -374,7 +273,7 @@ fn gen_nullable_type_field_expr(
   // 内部型が enum または Union の場合は変換が必要
   match inner_type {
     Named(type_name) =>
-      match lookup_enum_values(enum_map, type_name) {
+      match lookup_enum(enum_map, type_name) {
         Some(values) => {
           result.write_string("return [")
           for i = 0; i < values.length(); i = i + 1 {
@@ -513,117 +412,6 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
   result
 }
 
-///|
-/// 文字列を PascalCase に変換
-fn to_pascal_case(s : String) -> String {
-  // 空文字列は "Empty" にマップ
-  if is_empty_string(s) {
-    return "Empty"
-  }
-  let mut result = ""
-  let mut capitalize_next = true
-  let mut first_char = true
-  for c in s {
-    // セパレータ文字（次の文字を大文字化、文字自体は除去）
-    if c == '-' ||
-      c == '_' ||
-      c == ' ' ||
-      c == '/' ||
-      c == '+' ||
-      c == '.' ||
-      c == ':' ||
-      c == '*' {
-      capitalize_next = true
-    } else if capitalize_next {
-      // 最初の文字が数字なら N を前置 (N1, N2d など)
-      if first_char && c >= '0' && c <= '9' {
-        result = result + "N"
-        result = result + c.to_string()
-        // 小文字を大文字に変換 (ASCII: 'a'=97, 'A'=65, diff=32)
-      } else if c >= 'a' && c <= 'z' {
-        let upper_code = c.to_int() - 32
-        let upper = upper_code.unsafe_to_char()
-        result = result + upper.to_string()
-      } else {
-        result = result + c.to_string()
-      }
-      capitalize_next = false
-      first_char = false
-    } else {
-      result = result + c.to_string()
-      first_char = false
-    }
-  }
-  result
-}
-
-///|
-/// 文字列が空かどうか判定
-fn is_empty_string(s : String) -> Bool {
-  for _ in s {
-    return false
-  }
-  true
-}
-
-///|
-/// MoonBit の予約語をエスケープ
-pub fn escape_reserved(name : String) -> String {
-  // MoonBit reserved keywords (including future reserved keywords that cause warnings)
-  match name {
-    "type"
-    | "match"
-    | "if"
-    | "else"
-    | "for"
-    | "while"
-    | "break"
-    | "continue"
-    | "return"
-    | "fn"
-    | "let"
-    | "mut"
-    | "pub"
-    | "priv"
-    | "struct"
-    | "enum"
-    | "trait"
-    | "impl"
-    | "self"
-    | "async"
-    | "await"
-    | "true"
-    | "false"
-    | "loop"
-    | "in"
-    | "is"
-    | "as"
-    | "with"
-    | "derive"
-    | "test"
-    | "extern"
-    | "init"
-    | "member"
-    | "catch"
-    | "guard"
-    | "raise"
-    | "try"
-    // Future reserved keywords
-    | "constructor"
-    | "define"
-    | "namespace"
-    | "resume"
-    | "finally"
-    | "yield"
-    | "module"
-    | "alias"
-    | "ref"
-    | "where"
-    | "method"
-    | "use" => name + "_"
-    _ => name
-  }
-}
 
 ///|
 /// フィールド名を MoonBit 用に変換（小文字開始、ハイフンをアンダースコアに）
@@ -760,7 +548,7 @@ pub fn gen_typedef(
       result = result + "pub type "
       result = result + typedef_def.name
       result = result + " = "
-      result = result + type_to_moonbit(typedef_def.idl_type)
+      result = result + typedef_def.idl_type.to_moonbit_simple()
       result = result + "\n"
     }
   }
@@ -771,7 +559,7 @@ pub fn gen_typedef(
 ///|
 /// Union 型のファクトリ関数を生成
 fn gen_union_factory(union_name : String, member_type : IdlType) -> String {
-  let moonbit_type = type_to_moonbit(member_type)
+  let moonbit_type = member_type.to_moonbit_simple()
   let factory_name = get_factory_name(member_type)
 
   // JsValue 型はスキップ（Any, Union 内 Union などの場合）
@@ -868,7 +656,7 @@ fn gen_union_is_check(
   primitive_typedef_map~ : Array[(String, IdlType)] = [],
   callback_interface_names~ : Array[String] = [],
 ) -> String {
-  let moonbit_type = type_to_moonbit(member_type)
+  let moonbit_type = member_type.to_moonbit_simple()
   let factory_name = get_factory_name(member_type)
   let js_check = get_js_type_check(member_type, dictionary_names, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~)
 
@@ -906,7 +694,7 @@ fn gen_union_as_cast(
   primitive_typedef_map~ : Array[(String, IdlType)] = [],
   callback_interface_names~ : Array[String] = [],
 ) -> String {
-  let moonbit_type = type_to_moonbit(member_type)
+  let moonbit_type = member_type.to_moonbit_simple()
   let factory_name = get_factory_name(member_type)
   let js_check = get_js_type_check(member_type, dictionary_names, union_typedef_map~, enum_names~, primitive_typedef_map~, callback_interface_names~)
 
