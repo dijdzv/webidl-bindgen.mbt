@@ -3,35 +3,24 @@
 ///|
 /// 文字列が ? で終わるかチェック
 pub fn ends_with_question(s : String) -> Bool {
-  let mut last_char = ' '
-  for c in s {
-    last_char = c
-  }
-  last_char == '?'
+  s.to_array().last() == Some('?')
 }
 
 ///|
 /// 文字列の最初の文字を取得
 pub fn get_first_char(s : String) -> Char {
-  for c in s {
-    return c
-  }
-  ' '
+  s.to_array().get(0).unwrap_or(' ')
 }
 
 ///|
 /// 文字列の末尾の ? を削除
 pub fn remove_trailing_question(s : String) -> String {
-  let result = StringBuilder::new()
-  let chars : Array[Char] = []
-  for c in s {
-    chars.push(c)
+  let chars = s.to_array()
+  let len = chars.length()
+  if len <= 1 {
+    return ""
   }
-  // 最後の文字を除いて追加
-  for i = 0; i < chars.length() - 1; i = i + 1 {
-    result.write_char(chars[i])
-  }
-  result.to_string()
+  String::from_array(chars[:len - 1])
 }
 
 ///|
