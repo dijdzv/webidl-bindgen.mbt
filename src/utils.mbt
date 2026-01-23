@@ -181,3 +181,21 @@ pub fn escape_reserved(name : String) -> String {
     _ => name
   }
 }
+
+///|
+/// WebIDL プリミティブ型を MoonBit 型に変換
+/// 未知のプリミティブは警告を出して "JsValue" を返す
+pub fn primitive_to_moonbit(name : String) -> String {
+  match name {
+    "boolean" => "Bool"
+    "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" =>
+      "Int"
+    "long long" | "unsigned long long" => "Int64"
+    "float" | "unrestricted float" | "double" | "unrestricted double" =>
+      "Double"
+    _ => {
+      println("Warning: Unknown primitive type '\{name}', using JsValue")
+      "JsValue"
+    }
+  }
+}

@@ -210,20 +210,7 @@ pub fn InlineUnionCollector::length(self : InlineUnionCollector) -> Int {
 /// WebIDL 型を MoonBit 型に変換（シンプル版、Union は JsValue）
 pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
   match self {
-    Primitive(name) =>
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "JsValue"
-      }
+    Primitive(name) => primitive_to_moonbit(name)
     String => "String"
     Void => "Unit"
     Nullable(inner) => {

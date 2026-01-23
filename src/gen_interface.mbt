@@ -7,21 +7,7 @@ pub fn idl_type_to_moonbit_collecting(
   collector : InlineUnionCollector
 ) -> String {
   match idl_type {
-    Primitive(name) =>
-      // WebIDL プリミティブ → MoonBit
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "JsValue" // 未知の型はJsValue
-      }
+    Primitive(name) => primitive_to_moonbit(name)
     String => "String"
     Void => "Unit"
     Nullable(inner) => {
@@ -71,20 +57,7 @@ pub fn idl_type_to_moonbit_collecting(
 /// WebIDL 型を MoonBit 型に変換（inline Union は生成名を返す）
 pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
   match idl_type {
-    Primitive(name) =>
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "JsValue"
-      }
+    Primitive(name) => primitive_to_moonbit(name)
     String => "String"
     Void => "Unit"
     Nullable(inner) => {
@@ -150,15 +123,13 @@ fn get_union_member_name(idl_type : IdlType) -> String {
   match idl_type {
     Primitive(name) =>
       match name {
+        // 文字列系は "String" にマップ
         "DOMString" | "USVString" | "ByteString" => "String"
-        "boolean" => "Bool"
-        "byte" | "octet" | "short" | "unsigned short" | "long" | "unsigned long" =>
-          "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        // その他のプリミティブ型も名前を持つように
-        _ => capitalize_first(name)
+        _ => {
+          let result = primitive_to_moonbit(name)
+          // 未知の型（JsValue）の場合は capitalize_first にフォールバック
+          if result == "JsValue" { capitalize_first(name) } else { result }
+        }
       }
     String => "String"
     Named(name) => {
@@ -1181,20 +1152,7 @@ fn const_name_to_snake_case(name : String) -> String {
 /// Const 用の型変換（GLenum, GLint などは全て Int）
 fn const_type_to_moonbit(idl_type : IdlType) -> String {
   match idl_type {
-    Primitive(name) =>
-      match name {
-        "boolean" => "Bool"
-        "byte"
-        | "octet"
-        | "short"
-        | "unsigned short"
-        | "long"
-        | "unsigned long" => "Int"
-        "long long" | "unsigned long long" => "Int64"
-        "float" | "unrestricted float" | "double" | "unrestricted double" =>
-          "Double"
-        _ => "Int" // 未知のプリミティブは Int
-      }
+    Primitive(name) => primitive_to_moonbit(name)
     String => "String"
     Named(_) => "Int" // GLenum, GLint など WebGL 型は全て Int
     _ => "Int"
