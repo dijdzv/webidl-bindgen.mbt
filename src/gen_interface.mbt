@@ -99,21 +99,24 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
 ///|
 /// inline Union の名前を生成（メンバー型から一意な名前を生成）
 fn generate_inline_union_name(members : Array[IdlType]) -> String {
-  let parts : Array[String] = []
-  for mem in members {
-    let part = get_union_member_name(mem)
-    if part != "" {
-      parts.push(part)
-    }
-  }
+  let parts : Array[String] = members
+    .iter()
+    .filter_map(fn(mem) {
+      let part = get_union_member_name(mem)
+      if part != "" { Some(part) } else { None }
+    })
+    .collect()
   // メンバー名を結合（例: StringOrCanvasGradientOrCanvasPattern）
   let result = StringBuilder::new()
-  for i, part in parts {
-    if i > 0 {
-      result.write_string("Or")
-    }
-    result.write_string(part)
-  }
+  ignore(
+    parts.iter().fold(init=true, fn(first, part) {
+      if not(first) {
+        result.write_string("Or")
+      }
+      result.write_string(part)
+      false
+    }),
+  )
   result.to_string()
 }
 
@@ -177,53 +180,35 @@ fn get_union_member_name(idl_type : IdlType) -> String {
 ///|
 /// 文字列の最初の文字を大文字にする
 fn capitalize_first(s : String) -> String {
-  let result = StringBuilder::new()
-  let mut first = true
-  for c in s {
-    if first {
-      // 小文字なら大文字に変換
-      if c >= 'a' && c <= 'z' {
-        result.write_char((c.to_int() - 32).unsafe_to_char())
-      } else {
-        result.write_char(c)
-      }
-      first = false
-    } else {
-      result.write_char(c)
-    }
+  let chars = s.to_array()
+  if chars.is_empty() {
+    return ""
   }
-  result.to_string()
+  let first_char = chars[0]
+  // 小文字なら大文字に変換
+  let upper = if first_char >= 'a' && first_char <= 'z' {
+    (first_char.to_int() - 32).unsafe_to_char()
+  } else {
+    first_char
+  }
+  upper.to_string() + String::from_array(chars[1:])
 }
 
 ///|
 /// コレクタに指定名の Union が既に存在するかチェック
 fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
-  for entry in collector.iter() {
-    if entry.0 == name {
-      return true
-    }
-  }
-  false
+  collector.iter().any(fn(entry) { entry.0 == name })
 }
 
 
 ///|
 /// 文字列の先頭1文字を削除
 fn remove_leading_char(s : String) -> String {
-  if s.length() <= 1 {
+  let chars = s.to_array()
+  if chars.length() <= 1 {
     return ""
   }
-  // Build new string without first character
-  let result = StringBuilder::new()
-  let mut skip_first = true
-  for c in s {
-    if skip_first {
-      skip_first = false
-      continue
-    }
-    result.write_char(c)
-  }
-  result.to_string()
+  String::from_array(chars[1:])
 }
 
 ///|
@@ -897,9 +882,7 @@ pub fn gen_overloaded_operations(
       ops[0],
       enum_map,
     )
-    for name in fn_names {
-      generated_methods.push(name)
-    }
+    fn_names.iter().each(fn(name) { generated_methods.push(name) })
     return code
   }
 
@@ -1134,18 +1117,16 @@ pub fn gen_const(interface_name : String, const_def : ConstDef) -> String {
 /// 定数名を snake_case に変換（UPPER_CASE → lower_case）
 /// WebGL の定数は既にアンダースコア区切りなので、単純に小文字化する
 fn const_name_to_snake_case(name : String) -> String {
-  let result = StringBuilder::new()
-  for c in name {
-    if c >= 'A' && c <= 'Z' {
-      // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
-      let lower_code = c.to_int() + 32
-      let lower = lower_code.unsafe_to_char()
-      result.write_char(lower)
-    } else {
-      result.write_char(c)
-    }
-  }
-  result.to_string()
+  String::from_array(
+    name.to_array().map(fn(c) {
+      if c >= 'A' && c <= 'Z' {
+        // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
+        (c.to_int() + 32).unsafe_to_char()
+      } else {
+        c
+      }
+    }),
+  )
 }
 
 ///|
@@ -1356,19 +1337,27 @@ pub fn gen_interface_binding(
             let base_fn_name = to_snake_case(op.name)
             if not(generated_methods.contains(base_fn_name)) {
               // Find all static operations with this name
-              let group : Array[OperationDef] = []
-              for j = 0; j < operation_groups.length(); j = j + 1 {
-                let (name, ops) = operation_groups[j]
-                if name == op.name {
-                  for o in ops {
-                    match o.special {
-                      Some("static") => group.push(o)
-                      _ => ()
-                    }
+              let group : Array[OperationDef] = operation_groups
+                .iter()
+                .filter_map(fn(pair) {
+                  let (name, ops) = pair
+                  if name == op.name {
+                    Some(
+                      ops
+                        .iter()
+                        .filter(fn(o) {
+                          match o.special {
+                            Some("static") => true
+                            _ => false
+                          }
+                        })
+                        .collect(),
+                    )
+                  } else {
+                    None
                   }
-                  break
-                }
-              }
+                })
+                .fold(init=Array::new(), fn(_, ops) { ops })
 
               // Generate all overloads
               if group.length() > 0 {
