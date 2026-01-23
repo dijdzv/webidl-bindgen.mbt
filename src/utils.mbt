@@ -26,69 +26,65 @@ pub fn remove_trailing_question(s : String) -> String {
 ///|
 /// snake_case に変換（ハイフンもアンダースコアに変換）
 pub fn to_snake_case(name : String) -> String {
-  let result = StringBuilder::new()
-  let mut first = true
-  for c in name {
-    if c >= 'A' && c <= 'Z' {
-      if not(first) {
+  let (result, _) = name.iter().fold(
+    init=(StringBuilder::new(), true),
+    fn(state, c) {
+      let (result, first) = state
+      if c >= 'A' && c <= 'Z' {
+        if not(first) {
+          result.write_char('_')
+        }
+        // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
+        let lower = (c.to_int() + 32).unsafe_to_char()
+        result.write_char(lower)
+      } else if c == '-' {
         result.write_char('_')
+      } else {
+        result.write_char(c)
       }
-      // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
-      let lower_code = c.to_int() + 32
-      let lower = lower_code.unsafe_to_char()
-      result.write_char(lower)
-    } else if c == '-' {
-      // ハイフンはアンダースコアに変換
-      result.write_char('_')
-    } else {
-      result.write_char(c)
-    }
-    first = false
-  }
+      (result, false)
+    },
+  )
   result.to_string()
 }
 
 ///|
 /// 文字列を PascalCase に変換
 pub fn to_pascal_case(s : String) -> String {
-  // 空文字列は "Empty" にマップ
   if s.is_empty() {
     return "Empty"
   }
-  let mut result = ""
-  let mut capitalize_next = true
-  let mut first_char = true
-  for c in s {
-    // セパレータ文字（次の文字を大文字化、文字自体は除去）
-    if c == '-' ||
-      c == '_' ||
-      c == ' ' ||
-      c == '/' ||
-      c == '+' ||
-      c == '.' ||
-      c == ':' ||
-      c == '*' {
-      capitalize_next = true
-    } else if capitalize_next {
-      // 最初の文字が数字なら N を前置 (N1, N2d など)
-      if first_char && c >= '0' && c <= '9' {
-        result = result + "N"
-        result = result + c.to_string()
-        // 小文字を大文字に変換 (ASCII: 'a'=97, 'A'=65, diff=32)
-      } else if c >= 'a' && c <= 'z' {
-        let upper_code = c.to_int() - 32
-        let upper = upper_code.unsafe_to_char()
-        result = result + upper.to_string()
+  // State: (result, capitalize_next, first_char)
+  let (result, _, _) = s.iter().fold(
+    init=("", true, true),
+    fn(state, c) {
+      let (result, capitalize_next, first_char) = state
+      // セパレータ文字（次の文字を大文字化、文字自体は除去）
+      if c == '-' ||
+        c == '_' ||
+        c == ' ' ||
+        c == '/' ||
+        c == '+' ||
+        c == '.' ||
+        c == ':' ||
+        c == '*' {
+        (result, true, first_char)
+      } else if capitalize_next {
+        // 最初の文字が数字なら N を前置 (N1, N2d など)
+        if first_char && c >= '0' && c <= '9' {
+          (result + "N" + c.to_string(), false, false)
+        } else if c >= 'a' && c <= 'z' {
+          // 小文字を大文字に変換 (ASCII: 'a'=97, 'A'=65, diff=32)
+          let upper = (c.to_int() - 32).unsafe_to_char()
+          (result + upper.to_string(), false, false)
+        } else {
+          (result + c.to_string(), false, false)
+        }
       } else {
-        result = result + c.to_string()
+        (result + c.to_string(), false, false)
       }
-      capitalize_next = false
-      first_char = false
-    } else {
-      result = result + c.to_string()
-      first_char = false
-    }
-  }
+    },
+  )
   result
 }
 
