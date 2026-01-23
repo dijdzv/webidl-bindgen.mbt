@@ -28,14 +28,15 @@ let external_header_types : Array[(String, String, String)] = [
   ("Float64Array", "TypedArrays", ""),
 ]
 
+/// MoonBit 組み込み型（外部型判定で除外）
+let builtin_types : Array[String] = [
+  "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
+]
+
 ///|
 /// 外部型名のみの配列を取得
 fn get_external_type_names() -> Array[String] {
-  let names : Array[String] = []
-  for entry in external_header_types {
-    names.push(entry.0)
-  }
-  names
+  external_header_types.map(fn(entry) { entry.0 })
 }
 
 ///|
@@ -111,7 +112,7 @@ fn collect_types_from_member(
 /// IdlType から Named 型を収集
 fn collect_types_from_idl_type(t : IdlType, refs : Array[String]) -> Unit {
   match t {
-    Named(name) => if not(array_contains(refs, name)) { refs.push(name) }
+    Named(name) => if not(refs.contains(name)) { refs.push(name) }
     Nullable(inner) => collect_types_from_idl_type(inner, refs)
     Sequence(inner) => collect_types_from_idl_type(inner, refs)
     Promise(inner) => collect_types_from_idl_type(inner, refs)
@@ -249,27 +250,16 @@ pub fn collect_external_types_with_ownership(
   let referenced = collect_referenced_types(definitions)
   let undefined : Array[String] = []
 
-  // 組み込み型は除外
-  let builtins = [
-    "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
-  ]
   for ref_type in referenced {
     // 小文字始まりは除外 (object など無効な型名)
     let first_char = get_first_char(ref_type)
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
 
     // ownership map で定義済みかチェック
-    let mut is_defined = false
-    for i = 0; i < ownership.length(); i = i + 1 {
-      let (name, _) = ownership[i]
-      if name == ref_type {
-        is_defined = true
-        break
-      }
-    }
+    let is_defined = ownership.iter().any(fn(entry) { entry.0 == ref_type })
     if not(is_defined) &&
-      not(array_contains(builtins, ref_type)) &&
-      not(array_contains(undefined, ref_type)) &&
+      not(builtin_types.contains(ref_type)) &&
+      not(undefined.contains(ref_type)) &&
       not(is_lowercase) {
       undefined.push(ref_type)
     }
@@ -286,21 +276,16 @@ fn collect_undefined_external_types(
   let referenced = collect_referenced_types(definitions)
   let undefined : Array[String] = []
 
-  // 組み込み型は除外
-  let builtins = [
-    "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
-  ]
-
   // ヘッダーで既に宣言される型も除外
   let header_types = get_external_type_names()
   for ref_type in referenced {
     // 小文字始まりは除外 (object など無効な型名)
     let first_char = get_first_char(ref_type)
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
-    if not(array_contains(defined, ref_type)) &&
-      not(array_contains(builtins, ref_type)) &&
-      not(array_contains(header_types, ref_type)) &&
-      not(array_contains(undefined, ref_type)) &&
+    if not(defined.contains(ref_type)) &&
+      not(builtin_types.contains(ref_type)) &&
+      not(header_types.contains(ref_type)) &&
+      not(undefined.contains(ref_type)) &&
       not(is_lowercase) {
       undefined.push(ref_type)
     }
@@ -491,7 +476,7 @@ pub fn format_definitions(
   let inline_unions = collect_inline_unions(definitions)
   // inline Union 名を union_set に追加
   for entry in inline_unions.iter() {
-    if not(array_contains(union_set, entry.0)) {
+    if not(union_set.contains(entry.0)) {
       union_set.push(entry.0)
     }
   }

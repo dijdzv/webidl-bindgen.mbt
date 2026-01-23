@@ -245,7 +245,7 @@ pub fn gen_static_operation_with_suffix(
   suffix : String,
 ) -> String {
   // 名前なしの特殊メソッドはスキップ
-  if is_empty_string(op.name) {
+  if op.name.is_empty() {
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
@@ -453,7 +453,7 @@ pub fn gen_operation(
 ) -> String {
   // 名前なしの通常メソッドはスキップ
   // (special operation は gen_interface_binding で処理)
-  if is_empty_string(op.name) {
+  if op.name.is_empty() {
     return ""
   }
   let fn_name = escape_reserved(to_snake_case(op.name))
@@ -542,7 +542,7 @@ pub fn group_operations_by_name(
     match mem {
       Operation(op) => {
         // 空名のoperationはスキップ
-        if is_empty_string(op.name) {
+        if op.name.is_empty() {
           continue
         }
 
@@ -751,7 +751,7 @@ pub fn gen_operation_with_arg_count(
   arg_count : Int,
   fn_suffix : String,
 ) -> String {
-  if is_empty_string(op.name) {
+  if op.name.is_empty() {
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
@@ -839,7 +839,7 @@ pub fn gen_operation_variants(
 ) -> (String, Array[String]) {
   let result = StringBuilder::new()
   let fn_names : Array[String] = []
-  if is_empty_string(op.name) {
+  if op.name.is_empty() {
     return (result.to_string(), fn_names)
   }
   let first_optional = find_first_optional_arg_index(op.arguments)
@@ -1163,7 +1163,7 @@ fn const_type_to_moonbit(idl_type : IdlType) -> String {
 /// 定数値のフォーマット
 fn format_const_value(value : String, moonbit_type : String) -> String {
   // 空文字列チェック
-  if is_empty_string(value) {
+  if value.is_empty() {
     return "0"
   }
 
@@ -1311,9 +1311,9 @@ pub fn gen_interface_binding(
         match op.special {
           Some("getter") | Some("setter") | Some("deleter") => {
             // 名前付き special operation は通常メソッドとして生成
-            if not(is_empty_string(op.name)) {
+            if not(op.name.is_empty()) {
               let fn_name = to_snake_case(op.name)
-              if not(array_contains(generated_methods, fn_name)) {
+              if not(generated_methods.contains(fn_name)) {
                 generated_methods.push(fn_name)
                 result.write_string(gen_operation(iface.name, op, enum_map))
                 result.write_string("\n")
@@ -1335,7 +1335,7 @@ pub fn gen_interface_binding(
               Some("deleter") => "delete"
               _ => ""
             }
-            if not(array_contains(generated_methods, special_name)) {
+            if not(generated_methods.contains(special_name)) {
               generated_methods.push(special_name)
               let code = gen_special_operation(
                 iface.name,
@@ -1354,7 +1354,7 @@ pub fn gen_interface_binding(
           Some("static") => {
             // static operation - handle overloads
             let base_fn_name = to_snake_case(op.name)
-            if not(array_contains(generated_methods, base_fn_name)) {
+            if not(generated_methods.contains(base_fn_name)) {
               // Find all static operations with this name
               let group : Array[OperationDef] = []
               for j = 0; j < operation_groups.length(); j = j + 1 {
@@ -1386,7 +1386,7 @@ pub fn gen_interface_binding(
           _ => {
             // 通常の operation - handle both overloads and optional arguments
             let base_fn_name = to_snake_case(op.name)
-            if not(array_contains(generated_methods, base_fn_name)) {
+            if not(generated_methods.contains(base_fn_name)) {
               // Find all operations with this name
               let mut group : Array[OperationDef] = []
               for j = 0; j < operation_groups.length(); j = j + 1 {
@@ -1411,14 +1411,14 @@ pub fn gen_interface_binding(
         }
       Attribute(attr) => {
         let getter_name = "get_" + to_snake_case(attr.name)
-        if not(array_contains(generated_methods, getter_name)) {
+        if not(generated_methods.contains(getter_name)) {
           generated_methods.push(getter_name)
           result.write_string(gen_attribute_getter(iface.name, attr))
           result.write_string("\n")
         }
         if not(attr.is_readonly) {
           let setter_name = "set_" + to_snake_case(attr.name)
-          if not(array_contains(generated_methods, setter_name)) {
+          if not(generated_methods.contains(setter_name)) {
             generated_methods.push(setter_name)
             let setter = gen_attribute_setter(iface.name, attr)
             if setter != "" {
@@ -1439,7 +1439,7 @@ pub fn gen_interface_binding(
         let interface_prefix = to_snake_case(iface.name)
         let const_suffix = const_name_to_snake_case(const_def.name)
         let const_name = interface_prefix + "_" + const_suffix
-        if not(array_contains(generated_constants, const_name)) {
+        if not(generated_constants.contains(const_name)) {
           generated_constants.push(const_name)
           result.write_string(gen_const(iface.name, const_def))
           result.write_string("\n")
@@ -1472,7 +1472,7 @@ fn gen_maplike_methods(
   let value_type = idl_type_to_moonbit(maplike.value_type)
 
   // get(key) -> value?
-  if not(array_contains(generated_methods, "get")) {
+  if not(generated_methods.contains("get")) {
     generated_methods.push("get")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -1487,7 +1487,7 @@ fn gen_maplike_methods(
   }
 
   // has(key) -> Bool
-  if not(array_contains(generated_methods, "has")) {
+  if not(generated_methods.contains("has")) {
     generated_methods.push("has")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -1502,7 +1502,7 @@ fn gen_maplike_methods(
   // If not readonly, add set/delete/clear
   if not(maplike.is_readonly) {
     // set(key, value) -> Unit
-    if not(array_contains(generated_methods, "set")) {
+    if not(generated_methods.contains("set")) {
       generated_methods.push("set")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1519,7 +1519,7 @@ fn gen_maplike_methods(
     }
 
     // delete(key) -> Bool
-    if not(array_contains(generated_methods, "delete")) {
+    if not(generated_methods.contains("delete")) {
       generated_methods.push("delete")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1532,7 +1532,7 @@ fn gen_maplike_methods(
     }
 
     // clear() -> Unit
-    if not(array_contains(generated_methods, "clear")) {
+    if not(generated_methods.contains("clear")) {
       generated_methods.push("clear")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1556,7 +1556,7 @@ fn gen_setlike_methods(
   let value_type = idl_type_to_moonbit(setlike.value_type)
 
   // has(value) -> Bool
-  if not(array_contains(generated_methods, "has")) {
+  if not(generated_methods.contains("has")) {
     generated_methods.push("has")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -1571,7 +1571,7 @@ fn gen_setlike_methods(
   // If not readonly, add add/delete/clear
   if not(setlike.is_readonly) {
     // add(value) -> Unit
-    if not(array_contains(generated_methods, "add")) {
+    if not(generated_methods.contains("add")) {
       generated_methods.push("add")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1584,7 +1584,7 @@ fn gen_setlike_methods(
     }
 
     // delete(value) -> Bool
-    if not(array_contains(generated_methods, "delete")) {
+    if not(generated_methods.contains("delete")) {
       generated_methods.push("delete")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -1597,7 +1597,7 @@ fn gen_setlike_methods(
     }
 
     // clear() -> Unit
-    if not(array_contains(generated_methods, "clear")) {
+    if not(generated_methods.contains("clear")) {
       generated_methods.push("clear")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)

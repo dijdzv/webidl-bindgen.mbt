@@ -20,15 +20,6 @@ pub fn get_first_char(s : String) -> Char {
 }
 
 ///|
-/// 文字列が空かどうか判定
-pub fn is_empty_string(s : String) -> Bool {
-  for _ in s {
-    return false
-  }
-  true
-}
-
-///|
 /// 文字列の末尾の ? を削除
 pub fn remove_trailing_question(s : String) -> String {
   let result = StringBuilder::new()
@@ -72,7 +63,7 @@ pub fn to_snake_case(name : String) -> String {
 /// 文字列を PascalCase に変換
 pub fn to_pascal_case(s : String) -> String {
   // 空文字列は "Empty" にマップ
-  if is_empty_string(s) {
+  if s.is_empty() {
     return "Empty"
   }
   let mut result = ""
@@ -110,17 +101,6 @@ pub fn to_pascal_case(s : String) -> String {
     }
   }
   result
-}
-
-///|
-/// 配列に値が含まれるか
-pub fn array_contains(arr : Array[String], val : String) -> Bool {
-  for item in arr {
-    if item == val {
-      return true
-    }
-  }
-  false
 }
 
 ///|

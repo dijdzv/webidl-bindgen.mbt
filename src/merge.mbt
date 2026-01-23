@@ -78,19 +78,19 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
       Partial(partial) => partials.push(partial)
       Enum(e) =>
         // Only add enum if not already seen
-        if not(array_contains(seen_enums, e.name)) {
+        if not(seen_enums.contains(e.name)) {
           seen_enums.push(e.name)
           others.push(def)
         }
       Typedef(t) =>
         // Only add typedef if not already seen
-        if not(array_contains(seen_typedefs, t.name)) {
+        if not(seen_typedefs.contains(t.name)) {
           seen_typedefs.push(t.name)
           others.push(def)
         }
       CallbackInterface(cb) =>
         // Only add callback interface if not already seen
-        if not(array_contains(seen_callbacks, cb.name)) {
+        if not(seen_callbacks.contains(cb.name)) {
           seen_callbacks.push(cb.name)
           others.push(def)
         }
