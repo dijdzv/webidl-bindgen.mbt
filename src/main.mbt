@@ -277,24 +277,13 @@ async fn main {
       // Add inline Union names to global_union_set
       for entry in inline_unions.iter() {
         let (name, _) = entry
-        let mut found = false
-        for existing in global_union_set {
-          if existing == name {
-            found = true
-            break
-          }
-        }
-        if not(found) {
+        if not(global_union_set.contains(name)) {
           global_union_set.push(name)
         }
       }
 
       // Build set of defined type names from ownership map
-      let defined_types : Array[String] = []
-      for entry in ownership {
-        let (name, _) = entry
-        defined_types.push(name)
-      }
+      let defined_types = ownership.map(fn(entry) { entry.0 })
 
       // Write shared.mbt with common types, external declarations, and inline Unions
       let shared_code = gen_shared_types_with_externals(
