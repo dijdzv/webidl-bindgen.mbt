@@ -24,26 +24,46 @@ pub fn remove_trailing_question(s : String) -> String {
 }
 
 ///|
-/// snake_case に変換（ハイフンもアンダースコアに変換）
+/// snake_case に変換（アクロニムを正しく扱う）
+/// 例: UIEvent → ui_event, HTMLElement → html_element, XMLHttpRequest → xml_http_request
 pub fn to_snake_case(name : String) -> String {
-  let (result, _) = name
-    .iter()
-    .fold(init=(StringBuilder::new(), true), fn(state, c) {
-      let (result, first) = state
-      if c >= 'A' && c <= 'Z' {
-        if not(first) {
-          result.write_char('_')
-        }
-        // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
-        let lower = (c.to_int() + 32).unsafe_to_char()
-        result.write_char(lower)
-      } else if c == '-' {
-        result.write_char('_')
+  let chars = name.to_array()
+  let len = chars.length()
+  if len == 0 {
+    return ""
+  }
+  let result = StringBuilder::new()
+  for i = 0; i < len; i = i + 1 {
+    let c = chars[i]
+    let is_upper = c >= 'A' && c <= 'Z'
+    if is_upper {
+      let prev_is_upper = if i > 0 {
+        let p = chars[i - 1]
+        p >= 'A' && p <= 'Z'
       } else {
-        result.write_char(c)
+        false
       }
-      (result, false)
-    })
+      let next_is_lower = if i + 1 < len {
+        let n = chars[i + 1]
+        n >= 'a' && n <= 'z'
+      } else {
+        false
+      }
+      // アンダースコアを挿入する条件：
+      // 1. 先頭でない AND
+      // 2. (前が小文字 OR (前が大文字で次が小文字))
+      if i > 0 && (not(prev_is_upper) || (prev_is_upper && next_is_lower)) {
+        result.write_char('_')
+      }
+      // 大文字を小文字に変換
+      let lower = (c.to_int() + 32).unsafe_to_char()
+      result.write_char(lower)
+    } else if c == '-' {
+      result.write_char('_')
+    } else {
+      result.write_char(c)
+    }
+  }
   result.to_string()
 }
 
