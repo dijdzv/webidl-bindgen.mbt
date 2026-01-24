@@ -510,11 +510,25 @@ pub fn gen_operation(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  result.write_string(") => self.")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  // Nullable 型の場合は null チェックを追加
+  match op.return_type {
+    Nullable(_) => {
+      result.write_string(") => { const v = self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    _ => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(")\n")
+    }
+  }
   result.to_string()
 }
 
@@ -817,11 +831,25 @@ pub fn gen_operation_with_arg_count(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  result.write_string(") => self.")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  // Nullable 型の場合は null チェックを追加
+  match op.return_type {
+    Nullable(_) => {
+      result.write_string(") => { const v = self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    _ => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(")\n")
+    }
+  }
   result.to_string()
 }
 
@@ -1053,9 +1081,21 @@ pub fn gen_attribute_getter(
   result.write_string(") -> ")
   result.write_string(return_type)
   result.write_string(" =\n")
-  result.write_string("  #| (self) => self.")
-  result.write_string(attr.name)
-  result.write_string("\n")
+  // Nullable 型の場合は null チェックを追加
+  match attr.idl_type {
+    Nullable(_) => {
+      result.write_string("  #| (self) => { const v = self.")
+      result.write_string(attr.name)
+      result.write_string(
+        "; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    _ => {
+      result.write_string("  #| (self) => self.")
+      result.write_string(attr.name)
+      result.write_string("\n")
+    }
+  }
   result.to_string()
 }
 
