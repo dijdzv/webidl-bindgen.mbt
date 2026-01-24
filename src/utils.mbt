@@ -26,9 +26,9 @@ pub fn remove_trailing_question(s : String) -> String {
 ///|
 /// snake_case に変換（ハイフンもアンダースコアに変換）
 pub fn to_snake_case(name : String) -> String {
-  let (result, _) = name.iter().fold(
-    init=(StringBuilder::new(), true),
-    fn(state, c) {
+  let (result, _) = name
+    .iter()
+    .fold(init=(StringBuilder::new(), true), fn(state, c) {
       let (result, first) = state
       if c >= 'A' && c <= 'Z' {
         if not(first) {
@@ -43,8 +43,7 @@ pub fn to_snake_case(name : String) -> String {
         result.write_char(c)
       }
       (result, false)
-    },
-  )
+    })
   result.to_string()
 }
 
@@ -55,9 +54,9 @@ pub fn to_pascal_case(s : String) -> String {
     return "Empty"
   }
   // State: (result, capitalize_next, first_char)
-  let (result, _, _) = s.iter().fold(
-    init=("", true, true),
-    fn(state, c) {
+  let (result, _, _) = s
+    .iter()
+    .fold(init=("", true, true), fn(state, c) {
       let (result, capitalize_next, first_char) = state
       // セパレータ文字（次の文字を大文字化、文字自体は除去）
       if c == '-' ||
@@ -83,8 +82,7 @@ pub fn to_pascal_case(s : String) -> String {
       } else {
         (result + c.to_string(), false, false)
       }
-    },
-  )
+    })
   result
 }
 

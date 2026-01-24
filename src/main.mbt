@@ -129,9 +129,9 @@ fn print_usage() -> Unit {
 ///|
 /// カンマ区切り文字列を配列に分割
 fn split_by_comma(s : String) -> Array[String] {
-  let (result, current) = s.iter().fold(
-    init=(Array::new(), StringBuilder::new()),
-    fn(state, c) {
+  let (result, current) = s
+    .iter()
+    .fold(init=(Array::new(), StringBuilder::new()), fn(state, c) {
       let (result, current) = state
       if c == ',' {
         let trimmed = current.to_string()
@@ -146,8 +146,7 @@ fn split_by_comma(s : String) -> Array[String] {
       } else {
         state
       }
-    },
-  )
+    })
   // Add last segment
   let trimmed = current.to_string()
   if trimmed != "" {
@@ -213,14 +212,16 @@ async fn main {
     let results = load_multiple_specs(webref_specs, spec_names, true)
 
     // Report errors
-    let error_count = results.iter().fold(init=0, fn(count, result) {
-      if not(result.success) {
-        println("Warning: " + result.error_message)
-        count + 1
-      } else {
-        count
-      }
-    })
+    let error_count = results
+      .iter()
+      .fold(init=0, fn(count, result) {
+        if not(result.success) {
+          println("Warning: " + result.error_message)
+          count + 1
+        } else {
+          count
+        }
+      })
 
     // Per-spec mode: output each spec to separate file
     if args.per_spec {
@@ -257,7 +258,9 @@ async fn main {
       let primitive_typedef_map : Array[(String, IdlType)] = []
       // Build callback interface names list (for instanceof -> typeof === 'function')
       let callback_interface_names : Array[String] = []
-      all_definitions.iter().each(fn(def) {
+      all_definitions
+      .iter()
+      .each(fn(def) {
         match def {
           Enum(e) => {
             global_enum_map.push((e.name, e.values))
@@ -281,7 +284,9 @@ async fn main {
       // Collect inline Unions from all definitions
       let inline_unions = collect_inline_unions(all_definitions)
       // Add inline Union names to global_union_set
-      inline_unions.iter().each(fn(entry) {
+      inline_unions
+      .iter()
+      .each(fn(entry) {
         let (name, _) = entry
         if not(global_union_set.contains(name)) {
           global_union_set.push(name)
@@ -310,9 +315,9 @@ async fn main {
       let all_definitions = merge_all_results(results)
 
       // Output each spec to its own file
-      let (success_count, total_defs) = results.iter().fold(
-        init=(0, 0),
-        fn(counts, result) {
+      let (success_count, total_defs) = results
+        .iter()
+        .fold(init=(0, 0), fn(counts, result) {
           let (success_count, total_defs) = counts
           if result.success && result.definitions.length() > 0 {
             // Filter ALL definitions (from all specs) to only include those owned by this spec
@@ -353,8 +358,7 @@ async fn main {
           } else {
             counts
           }
-        },
-      )
+        })
       println(
         "Done! Generated " +
         success_count.to_string() +
@@ -446,4 +450,3 @@ async fn main {
   write_file_sync(output_file, output_code)
   println("Done!")
 }
-

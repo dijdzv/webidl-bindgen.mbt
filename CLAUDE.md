@@ -10,12 +10,10 @@ WebIDL to MoonBit binding generator. Parses WebIDL files and generates type-safe
 
 ```bash
 # Build the project (compiles MoonBit to JS and adds shebang)
-npm run build
-# or
 bun run build
 
 # Run locally during development (after build)
-node _build/js/release/build/webidl-bindgen.js --help
+bun _build/js/release/build/webidl-bindgen.js --help
 
 # Run tests
 moon test
@@ -29,7 +27,7 @@ moon check
 
 ## Architecture
 
-The codebase is a single MoonBit package (`src/`) that compiles to a Node.js CLI tool targeting JavaScript.
+The codebase is a single MoonBit package (`src/`) that compiles to a CLI tool targeting JavaScript (Bun).
 
 ### Core Files
 

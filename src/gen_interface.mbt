@@ -4,7 +4,7 @@
 /// WebIDL 型を MoonBit 型に変換（inline Union を収集）
 pub fn idl_type_to_moonbit_collecting(
   idl_type : IdlType,
-  collector : InlineUnionCollector
+  collector : InlineUnionCollector,
 ) -> String {
   match idl_type {
     Primitive(name) => primitive_to_moonbit(name)
@@ -103,13 +103,19 @@ fn generate_inline_union_name(members : Array[IdlType]) -> String {
     .iter()
     .filter_map(fn(mem) {
       let part = get_union_member_name(mem)
-      if part != "" { Some(part) } else { None }
+      if part != "" {
+        Some(part)
+      } else {
+        None
+      }
     })
     .collect()
   // メンバー名を結合（例: StringOrCanvasGradientOrCanvasPattern）
   let result = StringBuilder::new()
   ignore(
-    parts.iter().fold(init=true, fn(first, part) {
+    parts
+    .iter()
+    .fold(init=true, fn(first, part) {
       if not(first) {
         result.write_string("Or")
       }
@@ -131,7 +137,11 @@ fn get_union_member_name(idl_type : IdlType) -> String {
         _ => {
           let result = primitive_to_moonbit(name)
           // 未知の型（JsValue）の場合は capitalize_first にフォールバック
-          if result == "JsValue" { capitalize_first(name) } else { result }
+          if result == "JsValue" {
+            capitalize_first(name)
+          } else {
+            result
+          }
         }
       }
     String => "String"
@@ -168,10 +178,9 @@ fn get_union_member_name(idl_type : IdlType) -> String {
         "Promise"
       }
     }
-    Union(members) => {
+    Union(members) =>
       // ネストされた Union は再帰的に名前を生成
       generate_inline_union_name(members)
-    }
     Void => "Void"
     Any => "Any"
   }
@@ -199,7 +208,6 @@ fn capitalize_first(s : String) -> String {
 fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
   collector.iter().any(fn(entry) { entry.0 == name })
 }
-
 
 ///|
 /// 文字列の先頭1文字を削除
@@ -234,11 +242,7 @@ pub fn gen_static_operation_with_suffix(
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
-  let fn_name = if suffix == "" {
-    base_fn_name
-  } else {
-    base_fn_name + suffix
-  }
+  let fn_name = if suffix == "" { base_fn_name } else { base_fn_name + suffix }
   let return_type = idl_type_to_moonbit(op.return_type)
 
   // 引数リスト生成（self なし）
@@ -517,6 +521,7 @@ pub fn gen_operation(
 ///|
 /// 同名operationをグループ化し、引数数でソート
 /// Map型の代わりに Array[(String, Array[OperationDef])] を返す
+
 ///|
 /// Operation をグループに追加（既存グループがあれば追加、なければ新規作成）
 fn add_to_operation_group(
@@ -535,13 +540,16 @@ fn add_to_operation_group(
   groups.push((op.name, [op]))
 }
 
+///|
 pub fn group_operations_by_name(
-  members : Array[InterfaceMember]
+  members : Array[InterfaceMember],
 ) -> Array[(String, Array[OperationDef])] {
   let groups : Array[(String, Array[OperationDef])] = []
 
   // Operation のみを抽出してグループ化
-  members.iter().each(fn(mem) {
+  members
+  .iter()
+  .each(fn(mem) {
     match mem {
       Operation(op) => {
         // 空名のoperationはスキップ
@@ -586,7 +594,6 @@ pub fn group_operations_by_name(
     }
     groups[i] = (name, ops)
   }
-
   groups
 }
 
@@ -629,7 +636,6 @@ pub fn gen_overload_suffix(
   // 差分引数のsnake_case名を収集
   let result = StringBuilder::new()
   result.write_string("_with")
-
   for i = base_len; i < full_len; i = i + 1 {
     let arg_name = to_snake_case(full_args[i].name)
     result.write_string("_")
@@ -638,7 +644,6 @@ pub fn gen_overload_suffix(
       result.write_string("_and")
     }
   }
-
   result.to_string()
 }
 
@@ -691,25 +696,36 @@ pub fn gen_overload_suffix_from_all(args : Array[Argument]) -> String {
   }
 
   // 全引数のsnake_case名を収集
-  let parts = args.iter().map(fn(arg) {
-    let arg_name = to_snake_case(arg.name)
-    // 型名も追加（引数名だけでは区別できない場合のため）
-    // シンプルな型（Named）の場合のみ追加
-    match arg.idl_type {
-      Named(_) => arg_name + "_" + arg_type_to_snake_case(arg.idl_type)
-      _ => arg_name
+  let parts = args
+    .iter()
+    .map(fn(arg) {
+      let arg_name = to_snake_case(arg.name)
+      // 型名も追加（引数名だけでは区別できない場合のため）
+      // シンプルな型（Named）の場合のみ追加
+      match arg.idl_type {
+        Named(_) => arg_name + "_" + arg_type_to_snake_case(arg.idl_type)
+        _ => arg_name
+      }
+    })
+    .collect()
+  "_with_" +
+  parts
+  .iter()
+  .fold(init="", fn(acc, part) {
+    if acc == "" {
+      part
+    } else {
+      acc + "_and_" + part
     }
-  }).collect()
-
-  "_with_" + parts.iter().fold(init="", fn(acc, part) {
-    if acc == "" { part } else { acc + "_and_" + part }
   })
 }
 
 ///|
 /// optional引数の最初のインデックスを取得（なければ-1）
 fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
-  args.iter().fold(init=(-1, 0), fn(state, arg) {
+  args
+  .iter()
+  .fold(init=(-1, 0), fn(state, arg) {
     let (found, i) = state
     if found >= 0 {
       state
@@ -888,7 +904,6 @@ pub fn gen_overloaded_operations(
     let op = ops[i]
     let first_optional = find_first_optional_arg_index(op.arguments)
     let total_args = op.arguments.length()
-
     if first_optional < 0 {
       // optional引数がない場合
       if i == 0 {
@@ -938,7 +953,11 @@ pub fn gen_overloaded_operations(
           op,
           enum_map,
           first_optional,
-          if required_suffix == "" { "" } else { remove_leading_char(required_suffix) },
+          if required_suffix == "" {
+            ""
+          } else {
+            remove_leading_char(required_suffix)
+          },
         ),
       )
       result.write_string("\n")
@@ -1008,12 +1027,7 @@ pub fn gen_overloaded_static_operations(
       let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
       generated_methods.push(fn_name)
       result.write_string(
-        gen_static_operation_with_suffix(
-          interface_name,
-          op,
-          enum_map,
-          suffix,
-        ),
+        gen_static_operation_with_suffix(interface_name, op, enum_map, suffix),
       )
       result.write_string("\n")
     }
@@ -1113,7 +1127,9 @@ pub fn gen_const(interface_name : String, const_def : ConstDef) -> String {
 /// WebGL の定数は既にアンダースコア区切りなので、単純に小文字化する
 fn const_name_to_snake_case(name : String) -> String {
   String::from_array(
-    name.to_array().map(fn(c) {
+    name
+    .to_array()
+    .map(fn(c) {
       if c >= 'A' && c <= 'Z' {
         // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
         (c.to_int() + 32).unsafe_to_char()
@@ -1339,14 +1355,14 @@ pub fn gen_interface_binding(
                   if name == op.name {
                     Some(
                       ops
-                        .iter()
-                        .filter(fn(o) {
-                          match o.special {
-                            Some("static") => true
-                            _ => false
-                          }
-                        })
-                        .collect(),
+                      .iter()
+                      .filter(fn(o) {
+                        match o.special {
+                          Some("static") => true
+                          _ => false
+                        }
+                      })
+                      .collect(),
                     )
                   } else {
                     None

@@ -32,7 +32,9 @@ pub fn build_global_type_ownership(
         }
         let type_name = get_definition_name(def)
         // Only register if not already owned (first wins)
-        let already_owned = ownership.iter().any(fn(pair) { pair.0 == type_name })
+        let already_owned = ownership
+          .iter()
+          .any(fn(pair) { pair.0 == type_name })
         if not(already_owned) && type_name != "" {
           ownership.push((type_name, result.spec_name))
         }
@@ -49,16 +51,16 @@ fn get_type_owner(
   type_name : String,
 ) -> String {
   ownership
-    .iter()
-    .fold(init="", fn(result, pair) {
-      if result != "" {
-        result
-      } else if pair.0 == type_name {
-        pair.1
-      } else {
-        ""
-      }
-    })
+  .iter()
+  .fold(init="", fn(result, pair) {
+    if result != "" {
+      result
+    } else if pair.0 == type_name {
+      pair.1
+    } else {
+      ""
+    }
+  })
 }
 
 ///|
@@ -69,16 +71,16 @@ pub fn filter_definitions_by_owner(
   ownership : Array[(String, String)],
 ) -> Array[Definition] {
   definitions
-    .iter()
-    .filter(fn(def) {
-      match def {
-        // InterfaceMixin and Includes are always included (used for merging, not output)
-        InterfaceMixin(_) | Includes(_) => true
-        // Partials are included if their target type is owned by this spec
-        Partial(p) => get_type_owner(ownership, p.target) == spec_name
-        // Others are included only if this spec owns the type
-        _ => get_type_owner(ownership, get_definition_name(def)) == spec_name
-      }
-    })
-    .collect()
+  .iter()
+  .filter(fn(def) {
+    match def {
+      // InterfaceMixin and Includes are always included (used for merging, not output)
+      InterfaceMixin(_) | Includes(_) => true
+      // Partials are included if their target type is owned by this spec
+      Partial(p) => get_type_owner(ownership, p.target) == spec_name
+      // Others are included only if this spec owns the type
+      _ => get_type_owner(ownership, get_definition_name(def)) == spec_name
+    }
+  })
+  .collect()
 }

@@ -7,23 +7,28 @@ pub fn lookup_enum(
   name : String,
 ) -> Array[String]? {
   enum_map
-    .iter()
-    .fold(init=Option::None, fn(result, pair) {
-      match result {
-        Some(_) => result
-        None => if pair.0 == name { Some(pair.1) } else { None }
-      }
-    })
+  .iter()
+  .fold(init=Option::None, fn(result, pair) {
+    match result {
+      Some(_) => result
+      None => if pair.0 == name { Some(pair.1) } else { None }
+    }
+  })
 }
 
 ///|
 /// enum 配列ルックアップ式を生成
 /// 例: ['value1', 'value2'][index_expr]
-pub fn gen_enum_array_lookup(values : Array[String], index_expr : String) -> String {
+pub fn gen_enum_array_lookup(
+  values : Array[String],
+  index_expr : String,
+) -> String {
   let result = StringBuilder::new()
   result.write_string("[")
   ignore(
-    values.iter().fold(init=true, fn(first, v) {
+    values
+    .iter()
+    .fold(init=true, fn(first, v) {
       if not(first) {
         result.write_string(", ")
       }
@@ -51,7 +56,9 @@ pub fn gen_nullable_enum_array_lookup(
   result.write_string(var_name)
   result.write_string(" != null ? [")
   ignore(
-    values.iter().fold(init=true, fn(first, v) {
+    values
+    .iter()
+    .fold(init=true, fn(first, v) {
       if not(first) {
         result.write_string(", ")
       }

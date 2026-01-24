@@ -15,7 +15,9 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
   let seen_enums : Array[String] = [] // Track seen enum names
   let seen_typedefs : Array[String] = [] // Track seen typedef names
   let seen_callbacks : Array[String] = [] // Track seen callback interface names
-  definitions.iter().each(fn(def) {
+  definitions
+  .iter()
+  .each(fn(def) {
     match def {
       Interface(iface) =>
         // Merge or add interface using helper
@@ -50,7 +52,9 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
   })
 
   // Step 2: Merge partial members into their target interfaces/dictionaries
-  partials.iter().each(fn(partial) {
+  partials
+  .iter()
+  .each(fn(partial) {
     let target_name = partial.target
     // Convert partial to interface and merge
     let partial_as_iface : InterfaceDef = {
@@ -63,21 +67,26 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
   })
 
   // Step 3: Merge mixin members into interfaces based on includes statements
-  includes_list.iter().each(fn(incl) {
+  includes_list
+  .iter()
+  .each(fn(incl) {
     let target_name = incl.target
     let mixin_name = incl.includes
 
     // Find the mixin members
-    let mixin_members = mixins.iter().fold(
-      init=([] : Array[InterfaceMember]),
-      fn(found, entry) {
+    let mixin_members = mixins
+      .iter()
+      .fold(init=([] : Array[InterfaceMember]), fn(found, entry) {
         if found.length() > 0 {
           return found
         }
         let (name, mix_def) = entry
-        if name == mixin_name { mix_def.members } else { found }
-      },
-    )
+        if name == mixin_name {
+          mix_def.members
+        } else {
+          found
+        }
+      })
 
     // Skip if mixin not found (might be in another spec)
     if mixin_members.length() == 0 {
@@ -85,7 +94,9 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
     }
 
     // Find target interface and merge mixin members
-    merge_mixin_into_interface(interfaces, target_name, mixin_members, mixin_name)
+    merge_mixin_into_interface(
+      interfaces, target_name, mixin_members, mixin_name,
+    )
   })
 
   // Step 4: Resolve inheritance for interfaces
@@ -144,7 +155,10 @@ fn merge_or_add_dictionary(
   for i = 0; i < dictionaries.length(); i = i + 1 {
     let (name, existing) = dictionaries[i]
     if name == dict.name {
-      let merged_members = merge_dictionary_members(existing.members, dict.members)
+      let merged_members = merge_dictionary_members(
+        existing.members,
+        dict.members,
+      )
       let merged_dict : DictionaryDef = {
         name: existing.name,
         members: merged_members,
@@ -223,7 +237,9 @@ fn merge_interface_members(
   // Start with existing members
   let result : Array[InterfaceMember] = existing.copy()
   // Add new members, checking for duplicates
-  new_members.iter().each(fn(new_mem) {
+  new_members
+  .iter()
+  .each(fn(new_mem) {
     let new_name = get_member_name(new_mem)
     let is_duplicate = new_name != "" &&
       existing.iter().any(fn(m) { get_member_name(m) == new_name })
@@ -254,17 +270,18 @@ fn merge_dictionary_members(
   new_members : Array[DictionaryMember],
 ) -> Array[DictionaryMember] {
   // Copy existing members (with duplicate check using fold)
-  let result : Array[DictionaryMember] = existing.iter().fold(
-    init=Array::new(),
-    fn(result : Array[DictionaryMember], mem) {
+  let result : Array[DictionaryMember] = existing
+    .iter()
+    .fold(init=Array::new(), fn(result : Array[DictionaryMember], mem) {
       if not(result.iter().any(fn(r) { r.name == mem.name })) {
         result.push(mem)
       }
       result
-    },
-  )
+    })
   // Add new members, checking for duplicates
-  new_members.iter().fold(init=result, fn(result, new_mem) {
+  new_members
+  .iter()
+  .fold(init=result, fn(result, new_mem) {
     if not(result.iter().any(fn(r) { r.name == new_mem.name })) {
       result.push(new_mem)
     }
@@ -291,8 +308,7 @@ fn resolve_interface_inheritance(
         let visited : Array[String] = [name]
         let inherited_members = collect_inherited_interface_members(
           original, // 元の定義を使う（展開前）
-          parent_name,
-          visited,
+           parent_name, visited,
         )
         if inherited_members.length() > 0 {
           resolved_count = resolved_count + 1
@@ -339,15 +355,14 @@ fn collect_inherited_interface_members(
   }
 
   // 親インターフェースを検索
-  let parent_iface = interfaces.iter().fold(
-    init=(None : InterfaceDef?),
-    fn(found, entry) {
+  let parent_iface = interfaces
+    .iter()
+    .fold(init=(None : InterfaceDef?), fn(found, entry) {
       match found {
         Some(_) => found
         None => if entry.0 == parent_name { Some(entry.1) } else { None }
       }
-    },
-  )
+    })
 
   // 親が見つからない場合は空配列
   match parent_iface {
@@ -359,29 +374,32 @@ fn collect_inherited_interface_members(
           let new_visited = visited.copy()
           new_visited.push(parent_name)
           collect_inherited_interface_members(
-            interfaces,
-            grandparent_name,
-            new_visited,
+            interfaces, grandparent_name, new_visited,
           )
         }
         None => []
       }
 
       // 祖先のメンバー + 親自身のメンバー（重複チェック付き）
-      let result = grandparent_members.iter().fold(
-        init=Array::new(),
-        fn(acc : Array[InterfaceMember], mem) {
+      let result = grandparent_members
+        .iter()
+        .fold(init=Array::new(), fn(acc : Array[InterfaceMember], mem) {
           let mem_name = get_interface_member_name(mem)
-          if not(acc.iter().any(fn(e) { get_interface_member_name(e) == mem_name })) {
+          if not(
+              acc.iter().any(fn(e) { get_interface_member_name(e) == mem_name }),
+            ) {
             acc.push(mem)
           }
           acc
-        },
-      )
+        })
       // 親のメンバーを追加（祖父と重複する場合は親を優先）
-      iface.members.iter().fold(init=result, fn(acc, mem) {
+      iface.members
+      .iter()
+      .fold(init=result, fn(acc, mem) {
         let mem_name = get_interface_member_name(mem)
-        if not(acc.iter().any(fn(e) { get_interface_member_name(e) == mem_name })) {
+        if not(
+            acc.iter().any(fn(e) { get_interface_member_name(e) == mem_name }),
+          ) {
           acc.push(mem)
         }
         acc
@@ -420,8 +438,7 @@ fn resolve_dictionary_inheritance(
         let visited : Array[String] = [name]
         let inherited_members = collect_inherited_dictionary_members(
           original, // 元の定義を使う（展開前）
-          parent_name,
-          visited,
+           parent_name, visited,
         )
         // 親のメンバーを子の先頭に追加
         let combined = merge_dictionary_members(inherited_members, dict.members)
@@ -455,15 +472,14 @@ fn collect_inherited_dictionary_members(
   }
 
   // 親 dictionary を検索
-  let parent_dict = dictionaries.iter().fold(
-    init=(None : DictionaryDef?),
-    fn(found, entry) {
+  let parent_dict = dictionaries
+    .iter()
+    .fold(init=(None : DictionaryDef?), fn(found, entry) {
       match found {
         Some(_) => found
         None => if entry.0 == parent_name { Some(entry.1) } else { None }
       }
-    },
-  )
+    })
 
   // 親が見つからない場合は空配列
   match parent_dict {
@@ -475,26 +491,25 @@ fn collect_inherited_dictionary_members(
           let new_visited = visited.copy()
           new_visited.push(parent_name)
           collect_inherited_dictionary_members(
-            dictionaries,
-            grandparent_name,
-            new_visited,
+            dictionaries, grandparent_name, new_visited,
           )
         }
         None => []
       }
 
       // 祖先のメンバー + 親自身のメンバー（重複チェック付き）
-      let result = grandparent_members.iter().fold(
-        init=Array::new(),
-        fn(acc : Array[DictionaryMember], mem) {
+      let result = grandparent_members
+        .iter()
+        .fold(init=Array::new(), fn(acc : Array[DictionaryMember], mem) {
           if not(acc.iter().any(fn(e) { e.name == mem.name })) {
             acc.push(mem)
           }
           acc
-        },
-      )
+        })
       // 親のメンバーを追加（祖父と重複する場合は親を優先）
-      dict.members.iter().fold(init=result, fn(acc, mem) {
+      dict.members
+      .iter()
+      .fold(init=result, fn(acc, mem) {
         if not(acc.iter().any(fn(e) { e.name == mem.name })) {
           acc.push(mem)
         }
