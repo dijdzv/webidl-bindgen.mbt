@@ -99,8 +99,9 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
     )
   })
 
-  // Step 4: Resolve inheritance for interfaces
-  resolve_interface_inheritance(interfaces)
+  // Step 4: Interface inheritance is NOT resolved here
+  // Parent members are accessed via upcast (e.g., mouse_event.to_event().get_type())
+  // This follows MoonBit's "composition over inheritance" philosophy
 
   // Step 5: Resolve inheritance for dictionaries
   resolve_dictionary_inheritance(dictionaries)
@@ -452,6 +453,87 @@ fn resolve_dictionary_inheritance(
       None => ()
     }
   }
+}
+
+///|
+/// 継承マップを構築（親→子リスト）
+/// downcast メソッド生成に使用
+pub fn build_inheritance_map(
+  interfaces : Array[(String, InterfaceDef)],
+) -> Array[(String, Array[String])] {
+  let result : Array[(String, Array[String])] = []
+
+  // 各インターフェースについて、親→子の関係を登録
+  interfaces
+  .iter()
+  .each(fn(entry) {
+    let (child_name, iface) = entry
+    match iface.inheritance {
+      Some(parent_name) =>
+        // 親チェーン全体に対して子を登録
+        add_child_to_ancestors(result, interfaces, parent_name, child_name, [])
+      None => ()
+    }
+  })
+  result
+}
+
+///|
+/// 祖先全体に子を追加
+fn add_child_to_ancestors(
+  inheritance_map : Array[(String, Array[String])],
+  interfaces : Array[(String, InterfaceDef)],
+  parent_name : String,
+  child_name : String,
+  visited : Array[String],
+) -> Unit {
+  // 循環参照チェック
+  if visited.contains(parent_name) {
+    return
+  }
+
+  // 親に子を追加
+  add_child_to_parent(inheritance_map, parent_name, child_name)
+
+  // 親の親も探して追加
+  let parent_iface = interfaces
+    .iter()
+    .find_first(fn(entry) { entry.0 == parent_name })
+  match parent_iface {
+    Some((_, iface)) =>
+      match iface.inheritance {
+        Some(grandparent_name) => {
+          let new_visited = visited.copy()
+          new_visited.push(parent_name)
+          add_child_to_ancestors(
+            inheritance_map, interfaces, grandparent_name, child_name, new_visited,
+          )
+        }
+        None => ()
+      }
+    None => ()
+  }
+}
+
+///|
+/// 継承マップに子を追加
+fn add_child_to_parent(
+  inheritance_map : Array[(String, Array[String])],
+  parent_name : String,
+  child_name : String,
+) -> Unit {
+  // 既存のエントリを探す
+  for i = 0; i < inheritance_map.length(); i = i + 1 {
+    let (name, children) = inheritance_map[i]
+    if name == parent_name {
+      if not(children.contains(child_name)) {
+        children.push(child_name)
+      }
+      return
+    }
+  }
+  // 新規エントリを作成
+  inheritance_map.push((parent_name, [child_name]))
 }
 
 ///|

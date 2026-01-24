@@ -296,6 +296,20 @@ async fn main {
       // Build set of defined type names from ownership map
       let defined_types = ownership.map(fn(entry) { entry.0 })
 
+      // Build global interfaces list for inheritance map
+      let global_interfaces : Array[(String, InterfaceDef)] = all_definitions
+        .iter()
+        .filter_map(fn(def) {
+          match def {
+            Interface(iface) => Some((iface.name, iface))
+            _ => None
+          }
+        })
+        .collect()
+
+      // Build global inheritance map (for downcast methods across specs)
+      let global_inheritance_map = build_inheritance_map(global_interfaces)
+
       // Write shared.mbt with common types, external declarations, and inline Unions
       let shared_code = gen_shared_types_with_externals(
         external_types,
@@ -340,6 +354,8 @@ async fn main {
                 enum_names~,
                 primitive_typedef_map~,
                 callback_interface_names~,
+                global_interfaces~,
+                global_inheritance_map~,
               )
               // Skip empty files (no definitions after merging)
               if merged.length() > 0 {

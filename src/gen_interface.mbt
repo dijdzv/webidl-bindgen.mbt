@@ -1259,10 +1259,124 @@ pub fn gen_constructor(
 }
 
 ///|
+/// 親インターフェースチェーンを収集（継承チェーンを遡る）
+fn collect_parent_chain(
+  interfaces : Array[(String, InterfaceDef)],
+  parent_name : String,
+  visited : Array[String],
+) -> Array[String] {
+  // 循環継承の検出
+  if visited.iter().any(fn(v) { v == parent_name }) {
+    return []
+  }
+
+  // 親インターフェースを検索
+  let parent_iface = interfaces
+    .iter()
+    .fold(init=(None : InterfaceDef?), fn(found, entry) {
+      match found {
+        Some(_) => found
+        None => if entry.0 == parent_name { Some(entry.1) } else { None }
+      }
+    })
+  match parent_iface {
+    None => [parent_name] // 親が見つからなくても名前は追加（外部型の可能性）
+    Some(iface) => {
+      let result : Array[String] = [parent_name]
+      match iface.inheritance {
+        Some(grandparent_name) => {
+          let new_visited = visited.copy()
+          new_visited.push(parent_name)
+          let ancestors = collect_parent_chain(
+            interfaces, grandparent_name, new_visited,
+          )
+          ancestors.iter().each(fn(a) { result.push(a) })
+        }
+        None => ()
+      }
+      result
+    }
+  }
+}
+
+///|
+/// Downcast メソッドを生成（親→子）
+fn gen_downcast_methods(
+  iface : InterfaceDef,
+  inheritance_map : Array[(String, Array[String])],
+) -> String {
+  let result = StringBuilder::new()
+  // 継承マップから子孫を取得
+  let children = inheritance_map
+    .iter()
+    .find_first(fn(entry) { entry.0 == iface.name })
+  match children {
+    Some((_, child_list)) =>
+      // 各子孫に対して as_<child_name> メソッドを生成
+      child_list
+      .iter()
+      .each(fn(child_name) {
+        let fn_name = "as_" + to_snake_case(child_name)
+        result.write_string("pub extern \"js\" fn ")
+        result.write_string(iface.name)
+        result.write_string("::")
+        result.write_string(fn_name)
+        result.write_string("(self : ")
+        result.write_string(iface.name)
+        result.write_string(") -> ")
+        result.write_string(child_name)
+        result.write_string("? =\n")
+        result.write_string("  #| (self) => (self instanceof ")
+        result.write_string(child_name)
+        result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+      })
+    None => ()
+  }
+  result.to_string()
+}
+
+///|
+/// Upcast メソッドを生成（子→親）
+fn gen_upcast_methods(
+  iface : InterfaceDef,
+  interfaces : Array[(String, InterfaceDef)],
+) -> String {
+  let result = StringBuilder::new()
+  match iface.inheritance {
+    None => ()
+    Some(parent_name) => {
+      // 親チェーンを収集
+      let parent_chain = collect_parent_chain(interfaces, parent_name, [
+        iface.name,
+      ])
+      // 各親に対して to_<parent_name> メソッドを生成
+      parent_chain
+      .iter()
+      .each(fn(parent) {
+        let fn_name = "to_" + to_snake_case(parent)
+        result.write_string("pub extern \"js\" fn ")
+        result.write_string(iface.name)
+        result.write_string("::")
+        result.write_string(fn_name)
+        result.write_string("(self : ")
+        result.write_string(iface.name)
+        result.write_string(") -> ")
+        result.write_string(parent)
+        result.write_string(" =\n")
+        result.write_string("  #| (self) => self\n\n")
+      })
+    }
+  }
+  result.to_string()
+}
+
+///|
 /// Interface 全体から binding コードを生成
 pub fn gen_interface_binding(
   iface : InterfaceDef,
   enum_map : Array[(String, Array[String])],
+  interfaces? : Array[(String, InterfaceDef)] = [],
+  inheritance_map? : Array[(String, Array[String])] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -1284,6 +1398,12 @@ pub fn gen_interface_binding(
   result.write_string(iface.name)
   result.write_string(") -> JsValue =\n")
   result.write_string("  #| (self) => self\n\n")
+
+  // Upcast メソッド生成（子→親）
+  result.write_string(gen_upcast_methods(iface, interfaces))
+
+  // Downcast メソッド生成（親→子）
+  result.write_string(gen_downcast_methods(iface, inheritance_map))
 
   // Track generated method names to avoid duplicates
   let generated_methods : Array[String] = []

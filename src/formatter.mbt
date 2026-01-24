@@ -588,26 +588,30 @@ pub fn format_definitions(
   }
 
   // Interfaces セクション
-  let has_interfaces = definitions
+  // まず interfaces 配列を構築（upcast/downcast メソッド生成に使用）
+  let interfaces : Array[(String, InterfaceDef)] = definitions
     .iter()
-    .any(fn(def) {
+    .filter_map(fn(def) {
       match def {
-        Interface(_) => true
-        _ => false
+        Interface(iface) => Some((iface.name, iface))
+        _ => None
       }
     })
+    .collect()
+
+  // 継承マップを構築（downcast メソッド生成に使用）
+  let inheritance_map = build_inheritance_map(interfaces)
+  let has_interfaces = interfaces.length() > 0
   if has_interfaces {
     result.write_string(gen_section_comment("Interfaces"))
-    definitions
+    interfaces
     .iter()
-    .each(fn(def) {
-      match def {
-        Interface(iface) => {
-          result.write_string(gen_interface_binding(iface, enum_map))
-          result.write_string("\n")
-        }
-        _ => ()
-      }
+    .each(fn(entry) {
+      let (_, iface) = entry
+      result.write_string(
+        gen_interface_binding(iface, enum_map, interfaces~, inheritance_map~),
+      )
+      result.write_string("\n")
     })
   }
   result.to_string()
@@ -822,6 +826,39 @@ pub fn gen_shared_types_with_externals(
     })
   }
 
+  // TypedArray index access methods
+  result.write_string("// TypedArray index access\n")
+  // Uint8ClampedArray
+  result.write_string(
+    "pub extern \"js\" fn Uint8ClampedArray::op_get(self : Uint8ClampedArray, index : Int) -> Int =\n",
+  )
+  result.write_string("  #| (self, index) => self[index]\n\n")
+  result.write_string(
+    "pub extern \"js\" fn Uint8ClampedArray::op_set(self : Uint8ClampedArray, index : Int, value : Int) -> Unit =\n",
+  )
+  result.write_string(
+    "  #| (self, index, value) => { self[index] = value }\n\n",
+  )
+  result.write_string(
+    "pub extern \"js\" fn Uint8ClampedArray::length(self : Uint8ClampedArray) -> Int =\n",
+  )
+  result.write_string("  #| (self) => self.length\n\n")
+  // Float64Array
+  result.write_string(
+    "pub extern \"js\" fn Float64Array::op_get(self : Float64Array, index : Int) -> Double =\n",
+  )
+  result.write_string("  #| (self, index) => self[index]\n\n")
+  result.write_string(
+    "pub extern \"js\" fn Float64Array::op_set(self : Float64Array, index : Int, value : Double) -> Unit =\n",
+  )
+  result.write_string(
+    "  #| (self, index, value) => { self[index] = value }\n\n",
+  )
+  result.write_string(
+    "pub extern \"js\" fn Float64Array::length(self : Float64Array) -> Int =\n",
+  )
+  result.write_string("  #| (self) => self.length\n\n")
+
   // Global accessor functions
   if defined_types.contains("Window") {
     result.write_string("// Global accessors\n")
@@ -851,6 +888,8 @@ pub fn format_spec_output(
   enum_names? : Array[String] = [],
   primitive_typedef_map? : Array[(String, IdlType)] = [],
   callback_interface_names? : Array[String] = [],
+  global_interfaces? : Array[(String, InterfaceDef)] = [],
+  global_inheritance_map? : Array[(String, Array[String])] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -944,16 +983,31 @@ pub fn format_spec_output(
   }
 
   // Interfaces セクション
-  definitions
-  .iter()
-  .each(fn(def) {
-    match def {
-      Interface(iface) => {
-        result.write_string(gen_interface_binding(iface, global_enum_map))
-        result.write_string("\n")
+  // この仕様の interfaces を抽出
+  let spec_interfaces : Array[(String, InterfaceDef)] = definitions
+    .iter()
+    .filter_map(fn(def) {
+      match def {
+        Interface(iface) => Some((iface.name, iface))
+        _ => None
       }
-      _ => ()
-    }
+    })
+    .collect()
+
+  // グローバル interfaces と inheritance_map を使用（異なる仕様間の継承関係をサポート）
+  spec_interfaces
+  .iter()
+  .each(fn(entry) {
+    let (_, iface) = entry
+    result.write_string(
+      gen_interface_binding(
+        iface,
+        global_enum_map,
+        interfaces=global_interfaces,
+        inheritance_map=global_inheritance_map,
+      ),
+    )
+    result.write_string("\n")
   })
   let code = result.to_string()
   let code = normalize_indent(code)
