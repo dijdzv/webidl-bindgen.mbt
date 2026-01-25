@@ -371,6 +371,12 @@ pub fn gen_file_header_with_exclude(
   )
   result.write_string("  #| (self) => self == null\n\n")
 
+  // Promise type (WebIDL built-in) - aliased to @js_async.Promise for .wait() support
+  result.write_string(
+    "/// JavaScript Promise type (aliased to @js_async.Promise)\n",
+  )
+  result.write_string("pub typealias Promise[T] = @js_async.Promise[T]\n\n")
+
   // 外部型をカテゴリごとに出力（型がある場合のみヘッダーを出力）
   ignore(
     external_header_types
