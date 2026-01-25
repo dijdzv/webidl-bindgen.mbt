@@ -375,7 +375,7 @@ pub fn gen_file_header_with_exclude(
   result.write_string(
     "/// JavaScript Promise type (aliased to @js_async.Promise)\n",
   )
-  result.write_string("pub typealias Promise[T] = @js_async.Promise[T]\n\n")
+  result.write_string("pub type Promise[T] = @js_async.Promise[T]\n\n")
 
   // 外部型をカテゴリごとに出力（型がある場合のみヘッダーを出力）
   ignore(
@@ -826,7 +826,7 @@ pub fn gen_shared_types_with_externals(
   result.write_string(
     "/// JavaScript Promise type (aliased to @js_async.Promise)\n",
   )
-  result.write_string("pub typealias Promise[T] = @js_async.Promise[T]\n\n")
+  result.write_string("pub type Promise[T] = @js_async.Promise[T]\n\n")
 
   // Nullable type for JavaScript null vs undefined distinction
   result.write_string(
