@@ -308,13 +308,29 @@ pub fn gen_static_operation_with_suffix(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
-  result.write_string(") => ")
-  result.write_string(interface_name)
-  result.write_string(".")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  // Nullable 型の場合は null チェックを追加
+  match op.return_type {
+    Nullable(_) => {
+      result.write_string(") => { const v = ")
+      result.write_string(interface_name)
+      result.write_string(".")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    _ => {
+      result.write_string(") => ")
+      result.write_string(interface_name)
+      result.write_string(".")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(")\n")
+    }
+  }
   result.to_string()
 }
 
@@ -361,9 +377,21 @@ pub fn gen_special_operation(
       result.write_string(" =\n")
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
-      result.write_string(") => self[")
-      result.write_string(arg_name)
-      result.write_string("]\n")
+      // Nullable 型の場合は null チェックを追加
+      match op.return_type {
+        Nullable(_) => {
+          result.write_string(") => { const v = self[")
+          result.write_string(arg_name)
+          result.write_string(
+            "]; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+          )
+        }
+        _ => {
+          result.write_string(") => self[")
+          result.write_string(arg_name)
+          result.write_string("]\n")
+        }
+      }
       result.to_string()
     }
     "setter" => {
@@ -1643,7 +1671,9 @@ fn gen_maplike_methods(
     result.write_string(") -> ")
     result.write_string(value_type)
     result.write_string("? =\n")
-    result.write_string("  #| (self, key) => self.get(key)\n\n")
+    result.write_string(
+      "  #| (self, key) => { const v = self.get(key); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n\n",
+    )
   }
 
   // has(key) -> Bool
