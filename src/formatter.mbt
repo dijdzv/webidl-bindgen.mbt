@@ -787,9 +787,11 @@ pub fn gen_shared_types_with_externals(
   )
   result.write_string("  #| (b) => b\n\n")
 
-  // Promise type (WebIDL built-in)
-  result.write_string("/// JavaScript Promise type\n")
-  result.write_string("pub type Promise[T]\n\n")
+  // Promise type (WebIDL built-in) - aliased to @js_async.Promise for .wait() support
+  result.write_string(
+    "/// JavaScript Promise type (aliased to @js_async.Promise)\n",
+  )
+  result.write_string("pub typealias Promise[T] = @js_async.Promise[T]\n\n")
 
   // Nullable type for JavaScript null vs undefined distinction
   result.write_string(

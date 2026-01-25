@@ -37,15 +37,10 @@ pub fn idl_type_to_moonbit_collecting(
           "Array[" + inner_type + "]"
         }
       }
-    Promise(inner) =>
-      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
-      match inner {
-        Nullable(_) => "Promise[JsValue]"
-        _ => {
-          let inner_type = idl_type_to_moonbit_collecting(inner, collector)
-          "Promise[" + inner_type + "]"
-        }
-      }
+    Promise(inner) => {
+      let inner_type = idl_type_to_moonbit_collecting(inner, collector)
+      "Promise[" + inner_type + "]"
+    }
     Union(members) => {
       // 1メンバーの Union はその型を直接使う
       if members.length() == 1 {
@@ -95,15 +90,10 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
           "Array[" + inner_type + "]"
         }
       }
-    Promise(inner) =>
-      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
-      match inner {
-        Nullable(_) => "Promise[JsValue]"
-        _ => {
-          let inner_type = idl_type_to_moonbit(inner)
-          "Promise[" + inner_type + "]"
-        }
-      }
+    Promise(inner) => {
+      let inner_type = idl_type_to_moonbit(inner)
+      "Promise[" + inner_type + "]"
+    }
     Union(members) => {
       // 1メンバーの Union はその型を直接使う
       if members.length() == 1 {
@@ -329,6 +319,7 @@ pub fn gen_static_operation_with_suffix(
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
   // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
   match op.return_type {
     Nullable(_) => {
       result.write_string(") => { const v = ")
@@ -339,6 +330,17 @@ pub fn gen_static_operation_with_suffix(
       result.write_string(js_call_args.to_string())
       result.write_string(
         "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string(") => ")
+      result.write_string(interface_name)
+      result.write_string(".")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
       )
     }
     _ => {
@@ -559,6 +561,7 @@ pub fn gen_operation(
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
   // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
   match op.return_type {
     Nullable(_) => {
       result.write_string(") => { const v = self.")
@@ -567,6 +570,15 @@ pub fn gen_operation(
       result.write_string(js_call_args.to_string())
       result.write_string(
         "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
       )
     }
     _ => {
@@ -880,6 +892,7 @@ pub fn gen_operation_with_arg_count(
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
   // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
   match op.return_type {
     Nullable(_) => {
       result.write_string(") => { const v = self.")
@@ -888,6 +901,15 @@ pub fn gen_operation_with_arg_count(
       result.write_string(js_call_args.to_string())
       result.write_string(
         "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
       )
     }
     _ => {
@@ -1130,12 +1152,20 @@ pub fn gen_attribute_getter(
   result.write_string(return_type)
   result.write_string(" =\n")
   // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
   match attr.idl_type {
     Nullable(_) => {
       result.write_string("  #| (self) => { const v = self.")
       result.write_string(attr.name)
       result.write_string(
         "; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string("  #| (self) => self.")
+      result.write_string(attr.name)
+      result.write_string(
+        ".then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
       )
     }
     _ => {
