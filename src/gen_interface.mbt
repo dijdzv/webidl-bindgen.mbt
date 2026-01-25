@@ -37,10 +37,15 @@ pub fn idl_type_to_moonbit_collecting(
           "Array[" + inner_type + "]"
         }
       }
-    Promise(inner) => {
-      let inner_type = idl_type_to_moonbit_collecting(inner, collector)
-      "Promise[" + inner_type + "]"
-    }
+    Promise(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Promise[JsValue]"
+        _ => {
+          let inner_type = idl_type_to_moonbit_collecting(inner, collector)
+          "Promise[" + inner_type + "]"
+        }
+      }
     Union(members) => {
       // 1メンバーの Union はその型を直接使う
       if members.length() == 1 {
@@ -90,10 +95,15 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
           "Array[" + inner_type + "]"
         }
       }
-    Promise(inner) => {
-      let inner_type = idl_type_to_moonbit(inner)
-      "Promise[" + inner_type + "]"
-    }
+    Promise(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Promise[JsValue]"
+        _ => {
+          let inner_type = idl_type_to_moonbit(inner)
+          "Promise[" + inner_type + "]"
+        }
+      }
     Union(members) => {
       // 1メンバーの Union はその型を直接使う
       if members.length() == 1 {
