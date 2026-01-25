@@ -525,6 +525,47 @@ pub fn gen_typedef(
           }
         })
     }
+    Promise(inner) =>
+      // Promise 内に Union がある場合、Union 型定義を先に生成
+      match inner {
+        Union(members) => {
+          if members.length() > 1 {
+            // 内部 Union の型定義を生成
+            let union_name = generate_union_name(members)
+            let union_typedef : TypedefDef = {
+              name: union_name,
+              idl_type: inner,
+            }
+            result = result +
+              gen_typedef(
+                union_typedef,
+                dictionary_names~,
+                union_typedef_map~,
+                enum_names~,
+                primitive_typedef_map~,
+                callback_interface_names~,
+              )
+            result = result + "\n///|\n"
+            result = result + "/// "
+            result = result + typedef_def.name
+            result = result + " typedef\n"
+          }
+          // Promise[UnionName] の type alias を生成
+          result = result + "pub type "
+          result = result + typedef_def.name
+          result = result + " = "
+          result = result + typedef_def.idl_type.to_moonbit_simple()
+          result = result + "\n"
+        }
+        _ => {
+          // 非 Union 型は従来通り type alias
+          result = result + "pub type "
+          result = result + typedef_def.name
+          result = result + " = "
+          result = result + typedef_def.idl_type.to_moonbit_simple()
+          result = result + "\n"
+        }
+      }
     _ => {
       // 非 Union 型は従来通り type alias
       result = result + "pub type "

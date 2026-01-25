@@ -307,12 +307,13 @@ fn is_excluded_type(name : String, exclude : Array[String]) -> Bool {
 
 ///|
 /// 外部型を出力（除外リストにない場合のみ）
+/// 型が出力されたかを返す
 fn write_external_type(
   result : StringBuilder,
   name : String,
   exclude : Array[String],
   comment : String,
-) -> Unit {
+) -> Bool {
   if not(is_excluded_type(name, exclude)) {
     result.write_string("pub type ")
     result.write_string(name)
@@ -321,7 +322,9 @@ fn write_external_type(
       result.write_string(comment)
     }
     result.write_string("\n")
+    return true
   }
+  false
 }
 
 ///|
@@ -342,7 +345,7 @@ pub fn gen_file_header_with_exclude(
 
   // Add common external type definitions (excluding types defined in WebIDL)
   result.write_string("// External types\n")
-  write_external_type(result, "JsValue", exclude, "")
+  ignore(write_external_type(result, "JsValue", exclude, ""))
   result.write_string("\n")
 
   // JsValue helper functions
@@ -368,23 +371,49 @@ pub fn gen_file_header_with_exclude(
   )
   result.write_string("  #| (self) => self == null\n\n")
 
-  // 外部型をカテゴリごとに出力
+  // 外部型をカテゴリごとに出力（型がある場合のみヘッダーを出力）
   ignore(
     external_header_types
     .iter()
-    .fold(init="", fn(current_category, entry) {
-      let (type_name, category, comment) = entry
-      if category != current_category {
-        if current_category != "" {
+    .fold(
+      init=("", false), // (current_category, header_written)
+      fn(state, entry) {
+        let (current_category, header_written) = state
+        let (type_name, category, comment) = entry
+        if category != current_category {
+          // 新しいカテゴリに入った
+          if not(is_excluded_type(type_name, exclude)) {
+            // 型が出力される場合、ヘッダーを出力
+            if current_category != "" {
+              result.write_string("\n")
+            }
+            result.write_string("// ")
+            result.write_string(category)
+            result.write_string("\n")
+            ignore(write_external_type(result, type_name, exclude, comment))
+            (category, true)
+          } else {
+            // 型が除外される場合、ヘッダーは出力しない
+            (category, false)
+          }
+          // 同じカテゴリ内
+        } else if not(header_written) &&
+          not(is_excluded_type(type_name, exclude)) {
+          // このカテゴリで初めて出力する型なのでヘッダーを出力
+          if current_category != "" {
+            result.write_string("\n")
+          }
+          result.write_string("// ")
+          result.write_string(category)
           result.write_string("\n")
+          ignore(write_external_type(result, type_name, exclude, comment))
+          (category, true)
+        } else {
+          ignore(write_external_type(result, type_name, exclude, comment))
+          (category, header_written)
         }
-        result.write_string("// ")
-        result.write_string(category)
-        result.write_string("\n")
-      }
-      write_external_type(result, type_name, exclude, comment)
-      category
-    }),
+      },
+    ),
   )
   result.write_string("\n")
   result.to_string()
