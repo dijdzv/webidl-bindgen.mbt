@@ -377,6 +377,19 @@ pub fn gen_file_header_with_exclude(
   )
   result.write_string("pub type Promise[T] = @js_async.Promise[T]\n\n")
 
+  // Nullable type for JavaScript null vs undefined distinction
+  result.write_string(
+    "/// Nullable type for distinguishing null from undefined\n",
+  )
+  result.write_string("/// - Undefined: property not set (JS undefined)\n")
+  result.write_string("/// - Null: explicitly null\n")
+  result.write_string("/// - Value(T): has a value\n")
+  result.write_string("pub enum Nullable[T] {\n")
+  result.write_string("  Undefined\n")
+  result.write_string("  Null\n")
+  result.write_string("  Value(T)\n")
+  result.write_string("}\n\n")
+
   // 外部型をカテゴリごとに出力（型がある場合のみヘッダーを出力）
   ignore(
     external_header_types
