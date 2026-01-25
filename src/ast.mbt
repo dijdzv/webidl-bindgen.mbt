@@ -233,10 +233,15 @@ pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
         name
       }
     }
-    Sequence(inner) => {
-      let inner_type = inner.to_moonbit_simple()
-      "Array[" + inner_type + "]"
-    }
+    Sequence(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Array[JsValue]"
+        _ => {
+          let inner_type = inner.to_moonbit_simple()
+          "Array[" + inner_type + "]"
+        }
+      }
     Promise(inner) => {
       let inner_type = inner.to_moonbit_simple()
       "Promise[" + inner_type + "]"

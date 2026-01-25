@@ -351,6 +351,23 @@ pub fn gen_file_header_with_exclude(
   )
   result.write_string("  #| () => undefined\n\n")
 
+  // JsValue type check methods
+  result.write_string("/// Check if value is null\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::is_null(self : JsValue) -> Bool =\n",
+  )
+  result.write_string("  #| (self) => self === null\n\n")
+  result.write_string("/// Check if value is undefined\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::is_undefined(self : JsValue) -> Bool =\n",
+  )
+  result.write_string("  #| (self) => self === undefined\n\n")
+  result.write_string("/// Check if value is null or undefined\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::is_null_or_undefined(self : JsValue) -> Bool =\n",
+  )
+  result.write_string("  #| (self) => self == null\n\n")
+
   // 外部型をカテゴリごとに出力
   ignore(
     external_header_types
@@ -825,6 +842,24 @@ pub fn gen_shared_types_with_externals(
       result.write_string("\n")
     })
   }
+
+  // JsValue type check methods
+  result.write_string("// JsValue type checks\n")
+  result.write_string("/// Check if value is null\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::is_null(self : JsValue) -> Bool =\n",
+  )
+  result.write_string("  #| (self) => self === null\n\n")
+  result.write_string("/// Check if value is undefined\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::is_undefined(self : JsValue) -> Bool =\n",
+  )
+  result.write_string("  #| (self) => self === undefined\n\n")
+  result.write_string("/// Check if value is null or undefined\n")
+  result.write_string(
+    "pub extern \"js\" fn JsValue::is_null_or_undefined(self : JsValue) -> Bool =\n",
+  )
+  result.write_string("  #| (self) => self == null\n\n")
 
   // TypedArray index access methods
   result.write_string("// TypedArray index access\n")

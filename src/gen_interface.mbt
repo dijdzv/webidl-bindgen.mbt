@@ -28,10 +28,15 @@ pub fn idl_type_to_moonbit_collecting(
         name
       }
     }
-    Sequence(inner) => {
-      let inner_type = idl_type_to_moonbit_collecting(inner, collector)
-      "Array[" + inner_type + "]"
-    }
+    Sequence(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Array[JsValue]"
+        _ => {
+          let inner_type = idl_type_to_moonbit_collecting(inner, collector)
+          "Array[" + inner_type + "]"
+        }
+      }
     Promise(inner) => {
       let inner_type = idl_type_to_moonbit_collecting(inner, collector)
       "Promise[" + inner_type + "]"
@@ -76,10 +81,15 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
         name
       }
     }
-    Sequence(inner) => {
-      let inner_type = idl_type_to_moonbit(inner)
-      "Array[" + inner_type + "]"
-    }
+    Sequence(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Array[JsValue]"
+        _ => {
+          let inner_type = idl_type_to_moonbit(inner)
+          "Array[" + inner_type + "]"
+        }
+      }
     Promise(inner) => {
       let inner_type = idl_type_to_moonbit(inner)
       "Promise[" + inner_type + "]"
@@ -1465,6 +1475,57 @@ pub fn gen_interface_binding(
   result.write_string("::to_js_value(self : ")
   result.write_string(iface.name)
   result.write_string(") -> JsValue =\n")
+  result.write_string("  #| (self) => self\n\n")
+
+  // JsValue キャストメソッド生成
+  let snake_name = to_snake_case(iface.name)
+
+  // from_js_value: unchecked cast from JsValue
+  result.write_string("/// Cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (unchecked)\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface.name)
+  result.write_string("::from_js_value(v : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string(" =\n")
+  result.write_string("  #| (v) => v\n\n")
+
+  // from_js_value_opt: checked cast from JsValue (returns Option)
+  result.write_string("/// Safely cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (checked with instanceof)\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface.name)
+  result.write_string("::from_js_value_opt(v : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string("? =\n")
+  result.write_string("  #| (v) => (v instanceof ")
+  result.write_string(iface.name)
+  result.write_string(") ? { $tag: 1, _0: v } : { $tag: 0 }\n\n")
+
+  // JsValue::as_xxx: checked cast from JsValue (returns Option)
+  result.write_string("/// Safely cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (checked with instanceof)\n")
+  result.write_string("pub extern \"js\" fn JsValue::as_")
+  result.write_string(snake_name)
+  result.write_string("(self : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string("? =\n")
+  result.write_string("  #| (self) => (self instanceof ")
+  result.write_string(iface.name)
+  result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+
+  // JsValue::to_xxx: unchecked cast from JsValue
+  result.write_string("/// Cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (unchecked)\n")
+  result.write_string("pub extern \"js\" fn JsValue::to_")
+  result.write_string(snake_name)
+  result.write_string("(self : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string(" =\n")
   result.write_string("  #| (self) => self\n\n")
 
   // Upcast メソッド生成（子→親）
