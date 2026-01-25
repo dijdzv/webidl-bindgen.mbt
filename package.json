@@ -1,6 +1,6 @@
 {
     "name": "webidl-bindgen.mbt",
-    "version": "0.3.3",
+    "version": "0.3.4",
     "description": "WebIDL to MoonBit binding generator",
     "bin": {
         "webidl-bindgen.mbt": "./_build/js/release/build/webidl-bindgen.js"
