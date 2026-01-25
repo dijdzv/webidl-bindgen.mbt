@@ -450,13 +450,20 @@ pub fn gen_typedef(
   }
   let mut result = ""
 
-  // セグメント分割マーカー
-  result = result + "///|\n"
+  // Promise(Union(...)) の場合は後でコメントを出力するので、ここではスキップ
+  let skip_initial_comment = match typedef_def.idl_type {
+    Promise(Union(members)) => members.length() > 1
+    _ => false
+  }
+  if not(skip_initial_comment) {
+    // セグメント分割マーカー
+    result = result + "///|\n"
 
-  // ドキュメントコメント
-  result = result + "/// "
-  result = result + typedef_def.name
-  result = result + " typedef\n"
+    // ドキュメントコメント
+    result = result + "/// "
+    result = result + typedef_def.name
+    result = result + " typedef\n"
+  }
 
   // Union 型の場合は opaque 型として定義（型安全なファクトリ関数のため）
   match typedef_def.idl_type {
