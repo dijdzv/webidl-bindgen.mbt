@@ -105,6 +105,20 @@ pub extern "js" fn get_promise_inner_type(idl_type : JsValue) -> JsValue =
   #| (t) => (t && t.idlType && t.idlType[0]) || null
 
 ///|
+/// idlType が record 型かチェック
+pub extern "js" fn is_record_type(idl_type : JsValue) -> Bool =
+  #| (t) => t && t.generic === 'record'
+
+///|
+/// idlType が undefined または void かチェック
+pub extern "js" fn is_void_or_undefined_type(idl_type : JsValue) -> Bool =
+  #| (t) => {
+  #|   if (!t) return false;
+  #|   const name = typeof t.idlType === 'string' ? t.idlType : '';
+  #|   return name === 'undefined' || name === 'void';
+  #| }
+
+///|
 /// idlType が nullable かチェック
 pub extern "js" fn is_nullable_type(idl_type : JsValue) -> Bool =
   #| (t) => t && t.nullable === true
@@ -238,11 +252,23 @@ fn convert_idl_type(js_type : JsValue) -> IdlType {
   if is_promise_type(js_type) {
     // Extract Promise inner type
     let inner_js_type = get_promise_inner_type(js_type)
-    // Check if inner type is undefined/void (returns null from JS)
-    let type_name = get_type_name(inner_js_type)
-    if type_name == "" || type_name == "undefined" || type_name == "void" {
+
+    // undefined/void の場合は Promise[Unit]
+    if is_void_or_undefined_type(inner_js_type) {
       return Promise(Void)
     }
+
+    // Union型の場合は再帰的に処理
+    if is_union_type(inner_js_type) {
+      return Promise(convert_idl_type(inner_js_type))
+    }
+
+    // record<K, V> 型は JsValue として扱う（MoonBit で表現できない）
+    if is_record_type(inner_js_type) {
+      return Promise(Any)
+    }
+
+    // その他の型は再帰的に処理
     let inner_type = convert_idl_type(inner_js_type)
     return Promise(inner_type)
   }

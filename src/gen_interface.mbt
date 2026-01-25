@@ -4,7 +4,7 @@
 /// WebIDL 型を MoonBit 型に変換（inline Union を収集）
 pub fn idl_type_to_moonbit_collecting(
   idl_type : IdlType,
-  collector : InlineUnionCollector
+  collector : InlineUnionCollector,
 ) -> String {
   match idl_type {
     Primitive(name) => primitive_to_moonbit(name)
@@ -28,10 +28,15 @@ pub fn idl_type_to_moonbit_collecting(
         name
       }
     }
-    Sequence(inner) => {
-      let inner_type = idl_type_to_moonbit_collecting(inner, collector)
-      "Array[" + inner_type + "]"
-    }
+    Sequence(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Array[JsValue]"
+        _ => {
+          let inner_type = idl_type_to_moonbit_collecting(inner, collector)
+          "Array[" + inner_type + "]"
+        }
+      }
     Promise(inner) => {
       let inner_type = idl_type_to_moonbit_collecting(inner, collector)
       "Promise[" + inner_type + "]"
@@ -41,8 +46,8 @@ pub fn idl_type_to_moonbit_collecting(
       if members.length() == 1 {
         return idl_type_to_moonbit_collecting(members[0], collector)
       }
-      // inline Union の名前を生成し、コレクタに追加
-      let union_name = generate_inline_union_name(members)
+      // inline Union の名前を生成し、コレクタに追加（ast.mbt の関数を使用）
+      let union_name = generate_union_name(members)
       // 既に追加済みでなければ追加
       if not(has_inline_union(collector, union_name)) {
         collector.push((union_name, members))
@@ -76,10 +81,15 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
         name
       }
     }
-    Sequence(inner) => {
-      let inner_type = idl_type_to_moonbit(inner)
-      "Array[" + inner_type + "]"
-    }
+    Sequence(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Array[JsValue]"
+        _ => {
+          let inner_type = idl_type_to_moonbit(inner)
+          "Array[" + inner_type + "]"
+        }
+      }
     Promise(inner) => {
       let inner_type = idl_type_to_moonbit(inner)
       "Promise[" + inner_type + "]"
@@ -89,109 +99,11 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
       if members.length() == 1 {
         return idl_type_to_moonbit(members[0])
       }
-      // inline Union の名前を生成して返す
-      generate_inline_union_name(members)
+      // inline Union の名前を生成して返す（ast.mbt の関数を使用）
+      generate_union_name(members)
     }
     Any => "JsValue"
   }
-}
-
-///|
-/// inline Union の名前を生成（メンバー型から一意な名前を生成）
-fn generate_inline_union_name(members : Array[IdlType]) -> String {
-  let parts : Array[String] = members
-    .iter()
-    .filter_map(fn(mem) {
-      let part = get_union_member_name(mem)
-      if part != "" { Some(part) } else { None }
-    })
-    .collect()
-  // メンバー名を結合（例: StringOrCanvasGradientOrCanvasPattern）
-  let result = StringBuilder::new()
-  ignore(
-    parts.iter().fold(init=true, fn(first, part) {
-      if not(first) {
-        result.write_string("Or")
-      }
-      result.write_string(part)
-      false
-    }),
-  )
-  result.to_string()
-}
-
-///|
-/// Union メンバーの型名を取得（名前生成用）
-fn get_union_member_name(idl_type : IdlType) -> String {
-  match idl_type {
-    Primitive(name) =>
-      match name {
-        // 文字列系は "String" にマップ
-        "DOMString" | "USVString" | "ByteString" => "String"
-        _ => {
-          let result = primitive_to_moonbit(name)
-          // 未知の型（JsValue）の場合は capitalize_first にフォールバック
-          if result == "JsValue" { capitalize_first(name) } else { result }
-        }
-      }
-    String => "String"
-    Named(name) => {
-      // 小文字始まりの場合は大文字化（bigint など）
-      let first_char = get_first_char(name)
-      if first_char >= 'a' && first_char <= 'z' {
-        capitalize_first(name)
-      } else {
-        name
-      }
-    }
-    Sequence(inner) => {
-      let inner_name = get_union_member_name(inner)
-      if inner_name != "" {
-        "ArrayOf" + inner_name
-      } else {
-        "Array"
-      }
-    }
-    Nullable(inner) => {
-      let inner_name = get_union_member_name(inner)
-      if inner_name != "" {
-        "Nullable" + inner_name
-      } else {
-        "Nullable"
-      }
-    }
-    Promise(inner) => {
-      let inner_name = get_union_member_name(inner)
-      if inner_name != "" {
-        "PromiseOf" + inner_name
-      } else {
-        "Promise"
-      }
-    }
-    Union(members) => {
-      // ネストされた Union は再帰的に名前を生成
-      generate_inline_union_name(members)
-    }
-    Void => "Void"
-    Any => "Any"
-  }
-}
-
-///|
-/// 文字列の最初の文字を大文字にする
-fn capitalize_first(s : String) -> String {
-  let chars = s.to_array()
-  if chars.is_empty() {
-    return ""
-  }
-  let first_char = chars[0]
-  // 小文字なら大文字に変換
-  let upper = if first_char >= 'a' && first_char <= 'z' {
-    (first_char.to_int() - 32).unsafe_to_char()
-  } else {
-    first_char
-  }
-  upper.to_string() + String::from_array(chars[1:])
 }
 
 ///|
@@ -199,7 +111,6 @@ fn capitalize_first(s : String) -> String {
 fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
   collector.iter().any(fn(entry) { entry.0 == name })
 }
-
 
 ///|
 /// 文字列の先頭1文字を削除
@@ -234,11 +145,7 @@ pub fn gen_static_operation_with_suffix(
     return ""
   }
   let base_fn_name = escape_reserved(to_snake_case(op.name))
-  let fn_name = if suffix == "" {
-    base_fn_name
-  } else {
-    base_fn_name + suffix
-  }
+  let fn_name = if suffix == "" { base_fn_name } else { base_fn_name + suffix }
   let return_type = idl_type_to_moonbit(op.return_type)
 
   // 引数リスト生成（self なし）
@@ -304,13 +211,41 @@ pub fn gen_static_operation_with_suffix(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
-  result.write_string(") => ")
-  result.write_string(interface_name)
-  result.write_string(".")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
+  match op.return_type {
+    Nullable(_) => {
+      result.write_string(") => { const v = ")
+      result.write_string(interface_name)
+      result.write_string(".")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string(") => ")
+      result.write_string(interface_name)
+      result.write_string(".")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
+      )
+    }
+    _ => {
+      result.write_string(") => ")
+      result.write_string(interface_name)
+      result.write_string(".")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(")\n")
+    }
+  }
   result.to_string()
 }
 
@@ -357,9 +292,21 @@ pub fn gen_special_operation(
       result.write_string(" =\n")
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
-      result.write_string(") => self[")
-      result.write_string(arg_name)
-      result.write_string("]\n")
+      // Nullable 型の場合は null チェックを追加
+      match op.return_type {
+        Nullable(_) => {
+          result.write_string(") => { const v = self[")
+          result.write_string(arg_name)
+          result.write_string(
+            "]; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+          )
+        }
+        _ => {
+          result.write_string(") => self[")
+          result.write_string(arg_name)
+          result.write_string("]\n")
+        }
+      }
       result.to_string()
     }
     "setter" => {
@@ -506,17 +453,42 @@ pub fn gen_operation(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  result.write_string(") => self.")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
+  match op.return_type {
+    Nullable(_) => {
+      result.write_string(") => { const v = self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
+      )
+    }
+    _ => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(")\n")
+    }
+  }
   result.to_string()
 }
 
 ///|
 /// 同名operationをグループ化し、引数数でソート
 /// Map型の代わりに Array[(String, Array[OperationDef])] を返す
+
 ///|
 /// Operation をグループに追加（既存グループがあれば追加、なければ新規作成）
 fn add_to_operation_group(
@@ -535,13 +507,16 @@ fn add_to_operation_group(
   groups.push((op.name, [op]))
 }
 
+///|
 pub fn group_operations_by_name(
-  members : Array[InterfaceMember]
+  members : Array[InterfaceMember],
 ) -> Array[(String, Array[OperationDef])] {
   let groups : Array[(String, Array[OperationDef])] = []
 
   // Operation のみを抽出してグループ化
-  members.iter().each(fn(mem) {
+  members
+  .iter()
+  .each(fn(mem) {
     match mem {
       Operation(op) => {
         // 空名のoperationはスキップ
@@ -586,7 +561,6 @@ pub fn group_operations_by_name(
     }
     groups[i] = (name, ops)
   }
-
   groups
 }
 
@@ -629,7 +603,6 @@ pub fn gen_overload_suffix(
   // 差分引数のsnake_case名を収集
   let result = StringBuilder::new()
   result.write_string("_with")
-
   for i = base_len; i < full_len; i = i + 1 {
     let arg_name = to_snake_case(full_args[i].name)
     result.write_string("_")
@@ -638,7 +611,6 @@ pub fn gen_overload_suffix(
       result.write_string("_and")
     }
   }
-
   result.to_string()
 }
 
@@ -691,25 +663,36 @@ pub fn gen_overload_suffix_from_all(args : Array[Argument]) -> String {
   }
 
   // 全引数のsnake_case名を収集
-  let parts = args.iter().map(fn(arg) {
-    let arg_name = to_snake_case(arg.name)
-    // 型名も追加（引数名だけでは区別できない場合のため）
-    // シンプルな型（Named）の場合のみ追加
-    match arg.idl_type {
-      Named(_) => arg_name + "_" + arg_type_to_snake_case(arg.idl_type)
-      _ => arg_name
+  let parts = args
+    .iter()
+    .map(fn(arg) {
+      let arg_name = to_snake_case(arg.name)
+      // 型名も追加（引数名だけでは区別できない場合のため）
+      // シンプルな型（Named）の場合のみ追加
+      match arg.idl_type {
+        Named(_) => arg_name + "_" + arg_type_to_snake_case(arg.idl_type)
+        _ => arg_name
+      }
+    })
+    .collect()
+  "_with_" +
+  parts
+  .iter()
+  .fold(init="", fn(acc, part) {
+    if acc == "" {
+      part
+    } else {
+      acc + "_and_" + part
     }
-  }).collect()
-
-  "_with_" + parts.iter().fold(init="", fn(acc, part) {
-    if acc == "" { part } else { acc + "_and_" + part }
   })
 }
 
 ///|
 /// optional引数の最初のインデックスを取得（なければ-1）
 fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
-  args.iter().fold(init=(-1, 0), fn(state, arg) {
+  args
+  .iter()
+  .fold(init=(-1, 0), fn(state, arg) {
     let (found, i) = state
     if found >= 0 {
       state
@@ -801,11 +784,35 @@ pub fn gen_operation_with_arg_count(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  result.write_string(") => self.")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
+  match op.return_type {
+    Nullable(_) => {
+      result.write_string(") => { const v = self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(
+        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
+      )
+    }
+    _ => {
+      result.write_string(") => self.")
+      result.write_string(op.name)
+      result.write_string("(")
+      result.write_string(js_call_args.to_string())
+      result.write_string(")\n")
+    }
+  }
   result.to_string()
 }
 
@@ -888,7 +895,6 @@ pub fn gen_overloaded_operations(
     let op = ops[i]
     let first_optional = find_first_optional_arg_index(op.arguments)
     let total_args = op.arguments.length()
-
     if first_optional < 0 {
       // optional引数がない場合
       if i == 0 {
@@ -938,7 +944,11 @@ pub fn gen_overloaded_operations(
           op,
           enum_map,
           first_optional,
-          if required_suffix == "" { "" } else { remove_leading_char(required_suffix) },
+          if required_suffix == "" {
+            ""
+          } else {
+            remove_leading_char(required_suffix)
+          },
         ),
       )
       result.write_string("\n")
@@ -1008,12 +1018,7 @@ pub fn gen_overloaded_static_operations(
       let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
       generated_methods.push(fn_name)
       result.write_string(
-        gen_static_operation_with_suffix(
-          interface_name,
-          op,
-          enum_map,
-          suffix,
-        ),
+        gen_static_operation_with_suffix(interface_name, op, enum_map, suffix),
       )
       result.write_string("\n")
     }
@@ -1039,9 +1044,29 @@ pub fn gen_attribute_getter(
   result.write_string(") -> ")
   result.write_string(return_type)
   result.write_string(" =\n")
-  result.write_string("  #| (self) => self.")
-  result.write_string(attr.name)
-  result.write_string("\n")
+  // Nullable 型の場合は null チェックを追加
+  // Promise(Nullable(_)) の場合は .then() で変換
+  match attr.idl_type {
+    Nullable(_) => {
+      result.write_string("  #| (self) => { const v = self.")
+      result.write_string(attr.name)
+      result.write_string(
+        "; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
+      )
+    }
+    Promise(Nullable(_)) => {
+      result.write_string("  #| (self) => self.")
+      result.write_string(attr.name)
+      result.write_string(
+        ".then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
+      )
+    }
+    _ => {
+      result.write_string("  #| (self) => self.")
+      result.write_string(attr.name)
+      result.write_string("\n")
+    }
+  }
   result.to_string()
 }
 
@@ -1113,7 +1138,9 @@ pub fn gen_const(interface_name : String, const_def : ConstDef) -> String {
 /// WebGL の定数は既にアンダースコア区切りなので、単純に小文字化する
 fn const_name_to_snake_case(name : String) -> String {
   String::from_array(
-    name.to_array().map(fn(c) {
+    name
+    .to_array()
+    .map(fn(c) {
       if c >= 'A' && c <= 'Z' {
         // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
         (c.to_int() + 32).unsafe_to_char()
@@ -1243,10 +1270,124 @@ pub fn gen_constructor(
 }
 
 ///|
+/// 親インターフェースチェーンを収集（継承チェーンを遡る）
+fn collect_parent_chain(
+  interfaces : Array[(String, InterfaceDef)],
+  parent_name : String,
+  visited : Array[String],
+) -> Array[String] {
+  // 循環継承の検出
+  if visited.iter().any(fn(v) { v == parent_name }) {
+    return []
+  }
+
+  // 親インターフェースを検索
+  let parent_iface = interfaces
+    .iter()
+    .fold(init=(None : InterfaceDef?), fn(found, entry) {
+      match found {
+        Some(_) => found
+        None => if entry.0 == parent_name { Some(entry.1) } else { None }
+      }
+    })
+  match parent_iface {
+    None => [parent_name] // 親が見つからなくても名前は追加（外部型の可能性）
+    Some(iface) => {
+      let result : Array[String] = [parent_name]
+      match iface.inheritance {
+        Some(grandparent_name) => {
+          let new_visited = visited.copy()
+          new_visited.push(parent_name)
+          let ancestors = collect_parent_chain(
+            interfaces, grandparent_name, new_visited,
+          )
+          ancestors.iter().each(fn(a) { result.push(a) })
+        }
+        None => ()
+      }
+      result
+    }
+  }
+}
+
+///|
+/// Downcast メソッドを生成（親→子）
+fn gen_downcast_methods(
+  iface : InterfaceDef,
+  inheritance_map : Array[(String, Array[String])],
+) -> String {
+  let result = StringBuilder::new()
+  // 継承マップから子孫を取得
+  let children = inheritance_map
+    .iter()
+    .find_first(fn(entry) { entry.0 == iface.name })
+  match children {
+    Some((_, child_list)) =>
+      // 各子孫に対して as_<child_name> メソッドを生成
+      child_list
+      .iter()
+      .each(fn(child_name) {
+        let fn_name = "as_" + to_snake_case(child_name)
+        result.write_string("pub extern \"js\" fn ")
+        result.write_string(iface.name)
+        result.write_string("::")
+        result.write_string(fn_name)
+        result.write_string("(self : ")
+        result.write_string(iface.name)
+        result.write_string(") -> ")
+        result.write_string(child_name)
+        result.write_string("? =\n")
+        result.write_string("  #| (self) => (self instanceof ")
+        result.write_string(child_name)
+        result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+      })
+    None => ()
+  }
+  result.to_string()
+}
+
+///|
+/// Upcast メソッドを生成（子→親）
+fn gen_upcast_methods(
+  iface : InterfaceDef,
+  interfaces : Array[(String, InterfaceDef)],
+) -> String {
+  let result = StringBuilder::new()
+  match iface.inheritance {
+    None => ()
+    Some(parent_name) => {
+      // 親チェーンを収集
+      let parent_chain = collect_parent_chain(interfaces, parent_name, [
+        iface.name,
+      ])
+      // 各親に対して to_<parent_name> メソッドを生成
+      parent_chain
+      .iter()
+      .each(fn(parent) {
+        let fn_name = "to_" + to_snake_case(parent)
+        result.write_string("pub extern \"js\" fn ")
+        result.write_string(iface.name)
+        result.write_string("::")
+        result.write_string(fn_name)
+        result.write_string("(self : ")
+        result.write_string(iface.name)
+        result.write_string(") -> ")
+        result.write_string(parent)
+        result.write_string(" =\n")
+        result.write_string("  #| (self) => self\n\n")
+      })
+    }
+  }
+  result.to_string()
+}
+
+///|
 /// Interface 全体から binding コードを生成
 pub fn gen_interface_binding(
   iface : InterfaceDef,
   enum_map : Array[(String, Array[String])],
+  interfaces? : Array[(String, InterfaceDef)] = [],
+  inheritance_map? : Array[(String, Array[String])] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -1268,6 +1409,63 @@ pub fn gen_interface_binding(
   result.write_string(iface.name)
   result.write_string(") -> JsValue =\n")
   result.write_string("  #| (self) => self\n\n")
+
+  // JsValue キャストメソッド生成
+  let snake_name = to_snake_case(iface.name)
+
+  // from_js_value: unchecked cast from JsValue
+  result.write_string("/// Cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (unchecked)\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface.name)
+  result.write_string("::from_js_value(v : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string(" =\n")
+  result.write_string("  #| (v) => v\n\n")
+
+  // from_js_value_opt: checked cast from JsValue (returns Option)
+  result.write_string("/// Safely cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (checked with instanceof)\n")
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(iface.name)
+  result.write_string("::from_js_value_opt(v : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string("? =\n")
+  result.write_string("  #| (v) => (v instanceof ")
+  result.write_string(iface.name)
+  result.write_string(") ? { $tag: 1, _0: v } : { $tag: 0 }\n\n")
+
+  // JsValue::as_xxx: checked cast from JsValue (returns Option)
+  result.write_string("/// Safely cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (checked with instanceof)\n")
+  result.write_string("pub extern \"js\" fn JsValue::as_")
+  result.write_string(snake_name)
+  result.write_string("(self : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string("? =\n")
+  result.write_string("  #| (self) => (self instanceof ")
+  result.write_string(iface.name)
+  result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+
+  // JsValue::to_xxx: unchecked cast from JsValue
+  result.write_string("/// Cast JsValue to ")
+  result.write_string(iface.name)
+  result.write_string(" (unchecked)\n")
+  result.write_string("pub extern \"js\" fn JsValue::to_")
+  result.write_string(snake_name)
+  result.write_string("(self : JsValue) -> ")
+  result.write_string(iface.name)
+  result.write_string(" =\n")
+  result.write_string("  #| (self) => self\n\n")
+
+  // Upcast メソッド生成（子→親）
+  result.write_string(gen_upcast_methods(iface, interfaces))
+
+  // Downcast メソッド生成（親→子）
+  result.write_string(gen_downcast_methods(iface, inheritance_map))
 
   // Track generated method names to avoid duplicates
   let generated_methods : Array[String] = []
@@ -1339,14 +1537,14 @@ pub fn gen_interface_binding(
                   if name == op.name {
                     Some(
                       ops
-                        .iter()
-                        .filter(fn(o) {
-                          match o.special {
-                            Some("static") => true
-                            _ => false
-                          }
-                        })
-                        .collect(),
+                      .iter()
+                      .filter(fn(o) {
+                        match o.special {
+                          Some("static") => true
+                          _ => false
+                        }
+                      })
+                      .collect(),
                     )
                   } else {
                     None
@@ -1467,7 +1665,9 @@ fn gen_maplike_methods(
     result.write_string(") -> ")
     result.write_string(value_type)
     result.write_string("? =\n")
-    result.write_string("  #| (self, key) => self.get(key)\n\n")
+    result.write_string(
+      "  #| (self, key) => { const v = self.get(key); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n\n",
+    )
   }
 
   // has(key) -> Bool

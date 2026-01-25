@@ -233,15 +233,132 @@ pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
         name
       }
     }
-    Sequence(inner) => {
-      let inner_type = inner.to_moonbit_simple()
-      "Array[" + inner_type + "]"
-    }
+    Sequence(inner) =>
+      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      match inner {
+        Nullable(_) => "Array[JsValue]"
+        _ => {
+          let inner_type = inner.to_moonbit_simple()
+          "Array[" + inner_type + "]"
+        }
+      }
     Promise(inner) => {
       let inner_type = inner.to_moonbit_simple()
       "Promise[" + inner_type + "]"
     }
-    Union(_) => "JsValue"
+    Union(members) => generate_union_name(members)
     Any => "JsValue"
+  }
+}
+
+///|
+/// Union 型の名前を生成（メンバー型から一意な名前を生成）
+/// 例: (Blob or DOMString) → "BlobOrString"
+pub fn generate_union_name(members : Array[IdlType]) -> String {
+  let parts : Array[String] = members
+    .iter()
+    .filter_map(fn(mem) {
+      let part = get_union_member_name(mem)
+      if part != "" {
+        Some(part)
+      } else {
+        None
+      }
+    })
+    .collect()
+  // メンバー名を結合（例: StringOrCanvasGradientOrCanvasPattern）
+  let result = StringBuilder::new()
+  ignore(
+    parts
+    .iter()
+    .fold(init=true, fn(first, part) {
+      if not(first) {
+        result.write_string("Or")
+      }
+      result.write_string(part)
+      false
+    }),
+  )
+  result.to_string()
+}
+
+///|
+/// Union メンバーの型名を取得（名前生成用）
+fn get_union_member_name(idl_type : IdlType) -> String {
+  match idl_type {
+    Primitive(name) =>
+      match name {
+        // 文字列系は "String" にマップ
+        "DOMString" | "USVString" | "ByteString" => "String"
+        _ => {
+          let result = primitive_to_moonbit(name)
+          // 未知の型（JsValue）の場合は capitalize_first にフォールバック
+          if result == "JsValue" {
+            capitalize_first(name)
+          } else {
+            result
+          }
+        }
+      }
+    String => "String"
+    Named(name) => {
+      // 小文字始まりの場合は大文字化（bigint など）
+      let first_char = get_first_char(name)
+      if first_char >= 'a' && first_char <= 'z' {
+        capitalize_first(name)
+      } else {
+        name
+      }
+    }
+    Sequence(inner) => {
+      let inner_name = get_union_member_name(inner)
+      if inner_name != "" {
+        "ArrayOf" + inner_name
+      } else {
+        "Array"
+      }
+    }
+    Nullable(inner) => {
+      let inner_name = get_union_member_name(inner)
+      if inner_name != "" {
+        "Nullable" + inner_name
+      } else {
+        "Nullable"
+      }
+    }
+    Promise(inner) => {
+      let inner_name = get_union_member_name(inner)
+      if inner_name != "" {
+        "PromiseOf" + inner_name
+      } else {
+        "Promise"
+      }
+    }
+    Union(members) =>
+      // ネストされた Union は再帰的に名前を生成
+      generate_union_name(members)
+    Void => "Void"
+    Any => "Any"
+  }
+}
+
+///|
+/// 文字列の最初の文字を大文字にする
+fn capitalize_first(s : String) -> String {
+  let chars = s.to_array()
+  if chars.is_empty() {
+    return ""
+  }
+  let first = chars[0]
+  if first >= 'a' && first <= 'z' {
+    let upper = (first.to_int() - 32).unsafe_to_char()
+    let result = StringBuilder::new()
+    result.write_char(upper)
+    for i = 1; i < chars.length(); i = i + 1 {
+      result.write_char(chars[i])
+    }
+    result.to_string()
+  } else {
+    s
   }
 }
