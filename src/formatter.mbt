@@ -1,8 +1,8 @@
-// コード出力フォーマッター
+// Code output formatter
 
 ///|
-/// ヘッダーで宣言される外部型（カテゴリ付き）
-/// (型名, カテゴリ, コメント)
+/// External types declared in header (with category)
+/// (type name, category, comment)
 let external_header_types : Array[(String, String, String)] = [
   // HTML Elements
   ("HTMLCanvasElement", "HTML Elements", ""),
@@ -30,19 +30,19 @@ let external_header_types : Array[(String, String, String)] = [
 ]
 
 ///|
-/// MoonBit 組み込み型（外部型判定で除外）
+/// MoonBit builtin types (excluded from external type detection)
 let builtin_types : Array[String] = [
   "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
 ]
 
 ///|
-/// 外部型名のみの配列を取得
+/// Get array of external type names only
 fn get_external_type_names() -> Array[String] {
   external_header_types.map(fn(entry) { entry.0 })
 }
 
 ///|
-/// WebIDL で定義される型名を収集
+/// Collect type names defined in WebIDL
 fn collect_defined_types(definitions : Array[Definition]) -> Array[String] {
   definitions
   .iter()
@@ -60,7 +60,7 @@ fn collect_defined_types(definitions : Array[Definition]) -> Array[String] {
 }
 
 ///|
-/// 定義内で参照されている型名を収集
+/// Collect type names referenced in definitions
 fn collect_referenced_types(definitions : Array[Definition]) -> Array[String] {
   let refs : Array[String] = []
   definitions
@@ -85,7 +85,7 @@ fn collect_referenced_types(definitions : Array[Definition]) -> Array[String] {
 }
 
 ///|
-/// InterfaceMember から型を収集
+/// Collect types from InterfaceMember
 fn collect_types_from_member(
   mem : InterfaceMember,
   refs : Array[String],
@@ -112,7 +112,7 @@ fn collect_types_from_member(
 }
 
 ///|
-/// IdlType から Named 型を収集
+/// Collect Named types from IdlType
 fn collect_types_from_idl_type(t : IdlType, refs : Array[String]) -> Unit {
   match t {
     Named(name) => if not(refs.contains(name)) { refs.push(name) }
@@ -126,7 +126,7 @@ fn collect_types_from_idl_type(t : IdlType, refs : Array[String]) -> Unit {
 }
 
 ///|
-/// 全定義から inline Union を収集
+/// Collect inline Unions from all definitions
 pub fn collect_inline_unions(
   definitions : Array[Definition],
 ) -> InlineUnionCollector {
@@ -154,13 +154,13 @@ pub fn collect_inline_unions(
         .iter()
         .each(fn(mem) { collect_inline_unions_from_member(mem, collector) })
       CallbackInterface(cb) => {
-        // callback の引数を処理
+        // Process callback arguments
         cb.arguments
         .iter()
         .each(fn(arg) {
           collect_inline_unions_from_idl_type(arg.idl_type, collector)
         })
-        // callback の戻り値を処理
+        // Process callback return value
         match cb.return_type {
           Some(t) => collect_inline_unions_from_idl_type(t, collector)
           None => ()
@@ -173,7 +173,7 @@ pub fn collect_inline_unions(
 }
 
 ///|
-/// InterfaceMember から inline Union を収集
+/// Collect inline Unions from InterfaceMember
 fn collect_inline_unions_from_member(
   mem : InterfaceMember,
   collector : InlineUnionCollector,
@@ -205,7 +205,7 @@ fn collect_inline_unions_from_member(
 }
 
 ///|
-/// IdlType から inline Union を収集
+/// Collect inline Unions from IdlType
 fn collect_inline_unions_from_idl_type(
   t : IdlType,
   collector : InlineUnionCollector,
@@ -215,22 +215,22 @@ fn collect_inline_unions_from_idl_type(
     Sequence(inner) => collect_inline_unions_from_idl_type(inner, collector)
     Promise(inner) => collect_inline_unions_from_idl_type(inner, collector)
     Union(members) => {
-      // 1メンバーの Union はスキップ（その型を直接使う）
+      // Skip single-member Union (use the type directly)
       if members.length() == 1 {
         collect_inline_unions_from_idl_type(members[0], collector)
         return
       }
-      // inline Union を収集（idl_type_to_moonbit_collecting を使用）
+      // Collect inline Union (using idl_type_to_moonbit_collecting)
       let dummy_collector = InlineUnionCollector::new()
       let _ = idl_type_to_moonbit_collecting(t, dummy_collector)
-      // dummy_collector に追加されたものを本体コレクタにマージ
+      // Merge items added to dummy_collector into main collector
       dummy_collector
       .iter()
       .filter(fn(entry) {
         not(has_inline_union_in_collector(collector, entry.0))
       })
       .each(fn(entry) { collector.push(entry) })
-      // Union メンバーも再帰的に処理
+      // Process Union members recursively
       members
       .iter()
       .each(fn(mem) { collect_inline_unions_from_idl_type(mem, collector) })
@@ -240,7 +240,7 @@ fn collect_inline_unions_from_idl_type(
 }
 
 ///|
-/// コレクタに指定名の Union が存在するかチェック
+/// Check if Union with specified name exists in collector
 fn has_inline_union_in_collector(
   collector : InlineUnionCollector,
   name : String,
@@ -249,7 +249,7 @@ fn has_inline_union_in_collector(
 }
 
 ///|
-/// 未定義の外部型を抽出（ownership map から定義済み型を除外するバージョン）
+/// Extract undefined external types (version that excludes defined types using ownership map)
 pub fn collect_external_types_with_ownership(
   definitions : Array[Definition],
   ownership : Array[(String, String)],
@@ -258,10 +258,10 @@ pub fn collect_external_types_with_ownership(
   referenced
   .iter()
   .fold(init=Array::new(), fn(undefined, ref_type) {
-    // 小文字始まりは除外 (object など無効な型名)
+    // Exclude lowercase-starting names (invalid type names like object)
     let first_char = get_first_char(ref_type)
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
-    // ownership map で定義済みかチェック
+    // Check if defined in ownership map
     let is_defined = ownership.iter().any(fn(entry) { entry.0 == ref_type })
     if not(is_defined) &&
       not(builtin_types.contains(ref_type)) &&
@@ -274,18 +274,18 @@ pub fn collect_external_types_with_ownership(
 }
 
 ///|
-/// 未定義の外部型を抽出
+/// Extract undefined external types
 fn collect_undefined_external_types(
   definitions : Array[Definition],
 ) -> Array[String] {
   let defined = collect_defined_types(definitions)
   let referenced = collect_referenced_types(definitions)
-  // ヘッダーで既に宣言される型も除外
+  // Also exclude types already declared in header
   let header_types = get_external_type_names()
   referenced
   .iter()
   .fold(init=Array::new(), fn(undefined, ref_type) {
-    // 小文字始まりは除外 (object など無効な型名)
+    // Exclude lowercase-starting names (invalid type names like object)
     let first_char = get_first_char(ref_type)
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
     if not(defined.contains(ref_type)) &&
@@ -300,14 +300,14 @@ fn collect_undefined_external_types(
 }
 
 ///|
-/// 型名が除外リストに含まれるかチェック
+/// Check if type name is in exclusion list
 fn is_excluded_type(name : String, exclude : Array[String]) -> Bool {
   exclude.contains(name)
 }
 
 ///|
-/// 外部型を出力（除外リストにない場合のみ）
-/// 型が出力されたかを返す
+/// Output external type (only if not in exclusion list)
+/// Returns whether the type was output
 fn write_external_type(
   result : StringBuilder,
   name : String,
@@ -328,7 +328,7 @@ fn write_external_type(
 }
 
 ///|
-/// ファイルヘッダーを生成（除外する型を指定可能）
+/// Generate file header (can specify types to exclude)
 pub fn gen_file_header_with_exclude(
   source_file : String,
   exclude : Array[String],
@@ -390,7 +390,7 @@ pub fn gen_file_header_with_exclude(
   result.write_string("  Value(T)\n")
   result.write_string("}\n\n")
 
-  // 外部型をカテゴリごとに出力（型がある場合のみヘッダーを出力）
+  // Output external types by category (only output header if types exist)
   ignore(
     external_header_types
     .iter()
@@ -400,9 +400,9 @@ pub fn gen_file_header_with_exclude(
         let (current_category, header_written) = state
         let (type_name, category, comment) = entry
         if category != current_category {
-          // 新しいカテゴリに入った
+          // Entered new category
           if not(is_excluded_type(type_name, exclude)) {
-            // 型が出力される場合、ヘッダーを出力
+            // Output header if type will be output
             if current_category != "" {
               result.write_string("\n")
             }
@@ -412,13 +412,13 @@ pub fn gen_file_header_with_exclude(
             ignore(write_external_type(result, type_name, exclude, comment))
             (category, true)
           } else {
-            // 型が除外される場合、ヘッダーは出力しない
+            // Don't output header if type is excluded
             (category, false)
           }
-          // 同じカテゴリ内
+          // Within same category
         } else if not(header_written) &&
           not(is_excluded_type(type_name, exclude)) {
-          // このカテゴリで初めて出力する型なのでヘッダーを出力
+          // First type to output in this category, so output header
           if current_category != "" {
             result.write_string("\n")
           }
@@ -439,21 +439,21 @@ pub fn gen_file_header_with_exclude(
 }
 
 ///|
-/// ファイルヘッダーを生成（後方互換性用）
+/// Generate file header (for backward compatibility)
 pub fn gen_file_header(source_file : String) -> String {
   gen_file_header_with_exclude(source_file, [])
 }
 
 ///|
-/// セクション区切りコメントを生成
+/// Generate section separator comment
 pub fn gen_section_comment(title : String) -> String {
   let result = StringBuilder::new()
   result.write_string("// ")
-  // タイトル幅に合わせて区切り線を作成
+  // Create separator line matching title width
   let line_len = 60
   let title_len = title.length()
   let padding = (line_len - title_len - 4) / 2
-  // パディング文字を書き込み
+  // Write padding characters
   for _ in 0..<padding {
     result.write_char('-')
   }
@@ -468,17 +468,17 @@ pub fn gen_section_comment(title : String) -> String {
 }
 
 ///|
-/// 複数の定義をまとめてフォーマット
+/// Format multiple definitions together
 pub fn format_definitions(
   source_file : String,
   definitions : Array[Definition],
 ) -> String {
   let result = StringBuilder::new()
 
-  // WebIDL で定義される型名を収集（重複定義を避けるため）
+  // Collect type names defined in WebIDL (to avoid duplicate definitions)
   let defined_types = collect_defined_types(definitions)
 
-  // Dictionary型の名前を収集（Union の is_*/as_* で使用）
+  // Collect Dictionary type names (used in Union is_*/as_*)
   let dictionary_names : Array[String] = definitions
     .iter()
     .filter_map(fn(def) {
@@ -489,10 +489,10 @@ pub fn format_definitions(
     })
     .collect()
 
-  // ファイルヘッダー（WebIDL で定義される型は除外）
+  // File header (exclude types defined in WebIDL)
   result.write_string(gen_file_header_with_exclude(source_file, defined_types))
 
-  // 未定義の外部型を宣言
+  // Declare undefined external types
   let undefined_types = collect_undefined_external_types(definitions)
   if undefined_types.length() > 0 {
     result.write_string(
@@ -508,17 +508,17 @@ pub fn format_definitions(
     result.write_string("\n")
   }
 
-  // enum マップを作成（enum 引数の文字列変換に使用）
+  // Create enum map (used for enum argument string conversion)
   let enum_map : Array[(String, Array[String])] = []
-  // enum 名リストを作成（instanceof -> typeof === 'string'）
+  // Create enum name list (instanceof -> typeof === 'string')
   let enum_names : Array[String] = []
-  // Union 型セットを作成（to_js で .to_js_value() 呼び出しに使用）
+  // Create Union type set (used for .to_js_value() calls in to_js)
   let union_set : Array[String] = []
-  // Union typedef マップを作成（is_*/as_* の型チェックで使用）
+  // Create Union typedef map (used for type checking in is_*/as_*)
   let union_typedef_map : Array[(String, Array[IdlType])] = []
-  // プリミティブ typedef マップを作成（instanceof -> typeof check）
+  // Create primitive typedef map (instanceof -> typeof check)
   let primitive_typedef_map : Array[(String, IdlType)] = []
-  // callback interface 名リストを作成（instanceof -> typeof === 'function'）
+  // Create callback interface name list (instanceof -> typeof === 'function')
   let callback_interface_names : Array[String] = []
   definitions
   .iter()
@@ -541,15 +541,15 @@ pub fn format_definitions(
     }
   })
 
-  // inline Union を収集
+  // Collect inline Unions
   let inline_unions = collect_inline_unions(definitions)
-  // inline Union 名を union_set に追加
+  // Add inline Union names to union_set
   inline_unions
   .iter()
   .filter(fn(entry) { not(union_set.contains(entry.0)) })
   .each(fn(entry) { union_set.push(entry.0) })
 
-  // Types セクション (enum, dictionary, typedef, callback interface, inline unions)
+  // Types section (enum, dictionary, typedef, callback interface, inline unions)
   let has_types = inline_unions.length() > 0 ||
     definitions
     .iter()
@@ -562,7 +562,7 @@ pub fn format_definitions(
   if has_types {
     result.write_string(gen_section_comment("Types"))
 
-    // Typedef を先に出力（他の型から参照される可能性があるため）
+    // Output Typedef first (may be referenced by other types)
     definitions
     .iter()
     .each(fn(def) {
@@ -584,12 +584,12 @@ pub fn format_definitions(
       }
     })
 
-    // inline Union の typedef を出力
+    // Output inline Union typedef
     inline_unions
     .iter()
     .each(fn(entry) {
       let (name, members) = entry
-      // TypedefDef を作成して gen_typedef を再利用
+      // Create TypedefDef to reuse gen_typedef
       let typedef_def : TypedefDef = { name, idl_type: Union(members) }
       result.write_string(
         gen_typedef(
@@ -604,7 +604,7 @@ pub fn format_definitions(
       result.write_string("\n")
     })
 
-    // Enum を出力
+    // Output Enum
     definitions
     .iter()
     .each(fn(def) {
@@ -617,7 +617,7 @@ pub fn format_definitions(
       }
     })
 
-    // CallbackInterface を出力（opaque型 + from_fn ヘルパー）
+    // Output CallbackInterface (opaque type + from_fn helper)
     definitions
     .iter()
     .each(fn(def) {
@@ -629,7 +629,7 @@ pub fn format_definitions(
           result.write_string("pub type ")
           result.write_string(cb.name)
           result.write_string("\n\n")
-          // from_fn ヘルパーを生成（引数がある場合のみ）
+          // Generate from_fn helper (only if has arguments)
           if cb.arguments.length() > 0 {
             result.write_string(gen_callback_from_fn(cb))
           }
@@ -638,7 +638,7 @@ pub fn format_definitions(
       }
     })
 
-    // Dictionary を出力
+    // Output Dictionary
     definitions
     .iter()
     .each(fn(def) {
@@ -652,8 +652,8 @@ pub fn format_definitions(
     })
   }
 
-  // Interfaces セクション
-  // まず interfaces 配列を構築（upcast/downcast メソッド生成に使用）
+  // Interfaces section
+  // First build interfaces array (used for upcast/downcast method generation)
   let interfaces : Array[(String, InterfaceDef)] = definitions
     .iter()
     .filter_map(fn(def) {
@@ -664,7 +664,7 @@ pub fn format_definitions(
     })
     .collect()
 
-  // 継承マップを構築（downcast メソッド生成に使用）
+  // Build inheritance map (used for downcast method generation)
   let inheritance_map = build_inheritance_map(interfaces)
   let has_interfaces = interfaces.length() > 0
   if has_interfaces {
@@ -683,8 +683,8 @@ pub fn format_definitions(
 }
 
 ///|
-/// 単一インターフェースをフォーマット（ヘッダー付き）
-/// 注意: enum マップがないため、enum 引数の文字列変換は行われません
+/// Format single interface (with header)
+/// Note: enum argument string conversion not performed (no enum map)
 pub fn format_interface(source_file : String, iface : InterfaceDef) -> String {
   let result = StringBuilder::new()
   result.write_string(gen_file_header(source_file))
@@ -694,7 +694,7 @@ pub fn format_interface(source_file : String, iface : InterfaceDef) -> String {
 }
 
 ///|
-/// 連続する空行を1つにまとめる
+/// Normalize consecutive blank lines to one
 pub fn normalize_blank_lines(code : String) -> String {
   let result = StringBuilder::new()
   let current_line = StringBuilder::new()
@@ -722,7 +722,7 @@ pub fn normalize_blank_lines(code : String) -> String {
       }
     })
 
-  // 最後の行を処理
+  // Process last line
   let last_line = final_line.to_string()
   if not(is_blank_line(last_line)) {
     result.write_string(last_line)
@@ -731,13 +731,13 @@ pub fn normalize_blank_lines(code : String) -> String {
 }
 
 ///|
-/// 空白行かどうか判定
+/// Determine if line is blank
 fn is_blank_line(line : String) -> Bool {
   line.iter().all(fn(c) { c == ' ' || c == '\t' })
 }
 
 ///|
-/// インデントを正規化（タブをスペース2つに変換）
+/// Normalize indent (convert tabs to two spaces)
 pub fn normalize_indent(code : String) -> String {
   let result = StringBuilder::new()
   code
@@ -753,7 +753,7 @@ pub fn normalize_indent(code : String) -> String {
 }
 
 ///|
-/// 全フォーマット処理を適用
+/// Apply all formatting processes
 pub fn format_output(
   source_file : String,
   definitions : Array[Definition],
@@ -767,16 +767,12 @@ pub fn format_output(
 }
 
 ///|
-/// Partial 定義をマージして統合された定義配列を返す
-/// 継承関係も解決して親メンバーを子に展開する
-
-///|
-/// 共通型定義を生成（per-spec モード用）
-/// dictionary_names: Dictionary型の名前リスト（Union の is_*/as_* で使用）
-/// union_typedef_map: Union typedef名から構成要素へのマップ
-/// enum_names: enum型の名前リスト（instanceof -> typeof === 'string'）
-/// primitive_typedef_map: プリミティブtypedef名から解決後の型へのマップ
-/// callback_interface_names: callback interface型の名前リスト（instanceof -> typeof === 'function'）
+/// Generate shared type definitions (for per-spec mode)
+/// dictionary_names: Dictionary type name list (used in Union is_*/as_*)
+/// union_typedef_map: Map from Union typedef name to constituent types
+/// enum_names: enum type name list (instanceof -> typeof === 'string')
+/// primitive_typedef_map: Map from primitive typedef name to resolved type
+/// callback_interface_names: callback interface type name list (instanceof -> typeof === 'function')
 pub fn gen_shared_types_with_externals(
   external_types : Array[String],
   inline_unions : InlineUnionCollector,
@@ -957,12 +953,12 @@ pub fn gen_shared_types_with_externals(
 }
 
 ///|
-/// 仕様ごとのフォーマット出力（外部型宣言なし）
-/// dictionary_names: Dictionary型の名前リスト（Union の is_*/as_* で使用）
-/// union_typedef_map: Union typedef名から構成要素へのマップ
-/// enum_names: enum型の名前リスト（instanceof -> typeof === 'string'）
-/// primitive_typedef_map: プリミティブtypedef名から解決後の型へのマップ
-/// callback_interface_names: callback interface型の名前リスト（instanceof -> typeof === 'function'）
+/// Format output per spec (without external type declarations)
+/// dictionary_names: Dictionary type name list (used in Union is_*/as_*)
+/// union_typedef_map: Map from Union typedef name to constituent types
+/// enum_names: enum type name list (instanceof -> typeof === 'string')
+/// primitive_typedef_map: Map from primitive typedef name to resolved type
+/// callback_interface_names: callback interface type name list (instanceof -> typeof === 'function')
 pub fn format_spec_output(
   spec_name : String,
   definitions : Array[Definition],
@@ -984,7 +980,7 @@ pub fn format_spec_output(
   result.write_string(spec_name)
   result.write_string("\n\n")
 
-  // Types セクション (typedef, enum, callback interface, dictionary)
+  // Types section (typedef, enum, callback interface, dictionary)
   // Note: inline Unions are generated in shared.mbt to avoid duplication
   let has_types = definitions
     .iter()
@@ -995,7 +991,7 @@ pub fn format_spec_output(
       }
     })
   if has_types {
-    // Typedef を先に出力
+    // Output Typedef first
     definitions
     .iter()
     .each(fn(def) {
@@ -1017,7 +1013,7 @@ pub fn format_spec_output(
       }
     })
 
-    // Enum を出力
+    // Output Enum
     definitions
     .iter()
     .each(fn(def) {
@@ -1030,7 +1026,7 @@ pub fn format_spec_output(
       }
     })
 
-    // CallbackInterface を出力（opaque型 + from_fn ヘルパー）
+    // Output CallbackInterface (opaque type + from_fn helper)
     definitions
     .iter()
     .each(fn(def) {
@@ -1042,7 +1038,7 @@ pub fn format_spec_output(
           result.write_string("pub type ")
           result.write_string(cb.name)
           result.write_string("\n\n")
-          // from_fn ヘルパーを生成（引数がある場合のみ）
+          // Generate from_fn helper (only if has arguments)
           if cb.arguments.length() > 0 {
             result.write_string(gen_callback_from_fn(cb))
           }
@@ -1051,7 +1047,7 @@ pub fn format_spec_output(
       }
     })
 
-    // Dictionary を出力
+    // Output Dictionary
     definitions
     .iter()
     .each(fn(def) {
@@ -1067,8 +1063,8 @@ pub fn format_spec_output(
     })
   }
 
-  // Interfaces セクション
-  // この仕様の interfaces を抽出
+  // Interfaces section
+  // Extract interfaces from this spec
   let spec_interfaces : Array[(String, InterfaceDef)] = definitions
     .iter()
     .filter_map(fn(def) {
@@ -1079,7 +1075,7 @@ pub fn format_spec_output(
     })
     .collect()
 
-  // グローバル interfaces と inheritance_map を使用（異なる仕様間の継承関係をサポート）
+  // Use global interfaces and inheritance_map (supports cross-spec inheritance)
   spec_interfaces
   .iter()
   .each(fn(entry) {
@@ -1101,22 +1097,22 @@ pub fn format_spec_output(
 }
 
 ///|
-/// Callback interface の from_fn ヘルパーを生成
-/// 例: pub extern "js" fn EventListener::from_fn(handler : (Event) -> Unit) -> EventListener
+/// Generate from_fn helper for callback interface
+/// Example: pub extern "js" fn EventListener::from_fn(handler : (Event) -> Unit) -> EventListener
 fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
   let result = StringBuilder::new()
 
-  // ドキュメントコメント
+  // Doc comment
   result.write_string("/// Create ")
   result.write_string(cb.name)
   result.write_string(" from a MoonBit function\n")
 
-  // 関数シグネチャ
+  // Function signature
   result.write_string("pub extern \"js\" fn ")
   result.write_string(cb.name)
   result.write_string("::from_fn(handler : (")
 
-  // 引数の型リスト
+  // Argument type list
   ignore(
     cb.arguments
     .iter()
@@ -1129,19 +1125,19 @@ fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
     }),
   )
 
-  // 戻り値の型
+  // Return type
   result.write_string(") -> ")
   match cb.return_type {
     Some(Void) | None => result.write_string("Unit")
     Some(t) => result.write_string(idl_type_to_moonbit(t))
   }
 
-  // 関数の戻り値（Callback型）
+  // Function return value (Callback type)
   result.write_string(") -> ")
   result.write_string(cb.name)
   result.write_string(" =\n")
 
-  // JS実装（MoonBit関数はそのままJS関数として使える）
+  // JS implementation (MoonBit functions can be used directly as JS functions)
   result.write_string("  #| (handler) => handler\n\n")
   result.to_string()
 }

@@ -127,7 +127,7 @@ fn print_usage() -> Unit {
 }
 
 ///|
-/// カンマ区切り文字列を配列に分割
+/// Split comma-separated string into array
 fn split_by_comma(s : String) -> Array[String] {
   let (result, current) = s
     .iter()

@@ -1,7 +1,7 @@
-// Interface binding 生成ロジック
+// Interface binding generation logic
 
 ///|
-/// WebIDL 型を MoonBit 型に変換（inline Union を収集）
+/// Convert WebIDL type to MoonBit type (collecting inline unions)
 pub fn idl_type_to_moonbit_collecting(
   idl_type : IdlType,
   collector : InlineUnionCollector,
@@ -12,7 +12,7 @@ pub fn idl_type_to_moonbit_collecting(
     Void => "Unit"
     Nullable(inner) => {
       let inner_type = idl_type_to_moonbit_collecting(inner, collector)
-      // 二重 nullable を防ぐ
+      // Prevent double nullable
       if ends_with_question(inner_type) {
         inner_type
       } else {
@@ -20,7 +20,7 @@ pub fn idl_type_to_moonbit_collecting(
       }
     }
     Named(name) => {
-      // 小文字始まりの型名は JsValue に変換（object など無効な型名）
+      // Convert lowercase type names to JsValue (invalid type names like object)
       let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         "JsValue"
@@ -29,7 +29,7 @@ pub fn idl_type_to_moonbit_collecting(
       }
     }
     Sequence(inner) =>
-      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      // Treat nullable elements as JsValue (Rust web-sys style)
       match inner {
         Nullable(_) => "Array[JsValue]"
         _ => {
@@ -42,13 +42,13 @@ pub fn idl_type_to_moonbit_collecting(
       "Promise[" + inner_type + "]"
     }
     Union(members) => {
-      // 1メンバーの Union はその型を直接使う
+      // For single-member Union, use the type directly
       if members.length() == 1 {
         return idl_type_to_moonbit_collecting(members[0], collector)
       }
-      // inline Union の名前を生成し、コレクタに追加（ast.mbt の関数を使用）
+      // Generate inline Union name and add to collector (using function from ast.mbt)
       let union_name = generate_union_name(members)
-      // 既に追加済みでなければ追加
+      // Add only if not already added
       if not(has_inline_union(collector, union_name)) {
         collector.push((union_name, members))
       }
@@ -59,7 +59,7 @@ pub fn idl_type_to_moonbit_collecting(
 }
 
 ///|
-/// WebIDL 型を MoonBit 型に変換（inline Union は生成名を返す）
+/// Convert WebIDL type to MoonBit type (inline Union returns generated name)
 pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
   match idl_type {
     Primitive(name) => primitive_to_moonbit(name)
@@ -82,7 +82,7 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
       }
     }
     Sequence(inner) =>
-      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      // Treat nullable elements as JsValue (Rust web-sys style)
       match inner {
         Nullable(_) => "Array[JsValue]"
         _ => {
@@ -95,11 +95,11 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
       "Promise[" + inner_type + "]"
     }
     Union(members) => {
-      // 1メンバーの Union はその型を直接使う
+      // For single-member Union, use the type directly
       if members.length() == 1 {
         return idl_type_to_moonbit(members[0])
       }
-      // inline Union の名前を生成して返す（ast.mbt の関数を使用）
+      // Generate and return inline Union name (using function from ast.mbt)
       generate_union_name(members)
     }
     Any => "JsValue"
@@ -107,13 +107,13 @@ pub fn idl_type_to_moonbit(idl_type : IdlType) -> String {
 }
 
 ///|
-/// コレクタに指定名の Union が既に存在するかチェック
+/// Check if collector already has a Union with the specified name
 fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
   collector.iter().any(fn(entry) { entry.0 == name })
 }
 
 ///|
-/// 文字列の先頭1文字を削除
+/// Remove first character from string
 fn remove_leading_char(s : String) -> String {
   let chars = s.to_array()
   if chars.length() <= 1 {
@@ -123,7 +123,7 @@ fn remove_leading_char(s : String) -> String {
 }
 
 ///|
-/// Static Operation から extern js fn を生成
+/// Generate extern js fn from Static Operation
 pub fn gen_static_operation(
   interface_name : String,
   op : OperationDef,
@@ -133,14 +133,14 @@ pub fn gen_static_operation(
 }
 
 ///|
-/// Static Operation から extern js fn を生成（サフィックス付き）
+/// Generate extern js fn from Static Operation (with suffix)
 pub fn gen_static_operation_with_suffix(
   interface_name : String,
   op : OperationDef,
   enum_map : Array[(String, Array[String])],
   suffix : String,
 ) -> String {
-  // 名前なしの特殊メソッドはスキップ
+  // Skip special methods without name
   if op.name.is_empty() {
     return ""
   }
@@ -148,7 +148,7 @@ pub fn gen_static_operation_with_suffix(
   let fn_name = if suffix == "" { base_fn_name } else { base_fn_name + suffix }
   let return_type = idl_type_to_moonbit(op.return_type)
 
-  // 引数リスト生成（self なし）
+  // Generate argument list (without self)
   let args = StringBuilder::new()
   let args_len = op.arguments.length()
   for i = 0; i < args_len; i = i + 1 {
@@ -156,13 +156,13 @@ pub fn gen_static_operation_with_suffix(
     if i > 0 {
       args.write_string(", ")
     }
-    // 引数名も予約語をエスケープ
+    // Escape reserved keywords for argument names
     args.write_string(escape_reserved(to_snake_case(arg.name)))
     args.write_string(" : ")
     args.write_string(idl_type_to_moonbit(arg.idl_type))
   }
 
-  // JS 呼び出し引数（enum は配列ルックアップで文字列に変換）
+  // JS call arguments (convert enum to string via array lookup)
   let js_call_args = StringBuilder::new()
   for i = 0; i < args_len; i = i + 1 {
     let arg = op.arguments[i]
@@ -170,7 +170,7 @@ pub fn gen_static_operation_with_suffix(
       js_call_args.write_string(", ")
     }
     let arg_name = escape_reserved(to_snake_case(arg.name))
-    // 引数の型が enum かチェック
+    // Check if argument type is enum
     match arg.idl_type {
       Named(type_name) =>
         match lookup_enum(enum_map, type_name) {
@@ -190,7 +190,7 @@ pub fn gen_static_operation_with_suffix(
     }
   }
 
-  // JS側の引数リスト（変数名のみ）
+  // JS side argument list (variable names only)
   let js_params = StringBuilder::new()
   for i = 0; i < args_len; i = i + 1 {
     let arg = op.arguments[i]
@@ -211,8 +211,8 @@ pub fn gen_static_operation_with_suffix(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
-  // Nullable 型の場合は null チェックを追加
-  // Promise(Nullable(_)) の場合は .then() で変換
+  // Add null check for Nullable types
+  // For Promise(Nullable(_)), convert with .then()
   match op.return_type {
     Nullable(_) => {
       result.write_string(") => { const v = ")
@@ -250,7 +250,7 @@ pub fn gen_static_operation_with_suffix(
 }
 
 ///|
-/// Special operation (getter/setter/deleter) から extern js fn を生成
+/// Generate extern js fn from Special operation (getter/setter/deleter)
 pub fn gen_special_operation(
   interface_name : String,
   op : OperationDef,
@@ -258,20 +258,20 @@ pub fn gen_special_operation(
 ) -> String {
   match special_type {
     "getter" => {
-      // getter には2種類ある：
-      // 1. インデックスベース: getter T? item(unsigned long index)
-      // 2. 名前ベース: getter T? namedItem(DOMString name)
+      // There are two types of getters:
+      // 1. Index-based: getter T? item(unsigned long index)
+      // 2. Name-based: getter T? namedItem(DOMString name)
       let args_len = op.arguments.length()
       if args_len != 1 {
-        return "" // getter は引数1つのはず
+        return "" // getter should have 1 argument
       }
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
       let return_type = idl_type_to_moonbit(op.return_type)
 
-      // 引数の型でインデックスか名前か判定
+      // Determine if index or named based on argument type
       let is_index_getter = match arg.idl_type {
-        Primitive(_) => true // unsigned long など
+        Primitive(_) => true // unsigned long, etc.
         _ => false
       }
       let fn_name = if is_index_getter { "get" } else { "get_named" }
@@ -292,7 +292,7 @@ pub fn gen_special_operation(
       result.write_string(" =\n")
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
-      // Nullable 型の場合は null チェックを追加
+      // Add null check for Nullable types
       match op.return_type {
         Nullable(_) => {
           result.write_string(") => { const v = self[")
@@ -310,10 +310,10 @@ pub fn gen_special_operation(
       result.to_string()
     }
     "setter" => {
-      // setter は setter undefined (unsigned long index, T value) の形式
+      // setter has the form: setter undefined (unsigned long index, T value)
       let args_len = op.arguments.length()
       if args_len != 2 {
-        return "" // setter は引数2つのはず
+        return "" // setter should have 2 arguments
       }
       let index_arg = op.arguments[0]
       let value_arg = op.arguments[1]
@@ -347,10 +347,10 @@ pub fn gen_special_operation(
       result.to_string()
     }
     "deleter" => {
-      // deleter は deleter undefined (T key) の形式
+      // deleter has the form: deleter undefined (T key)
       let args_len = op.arguments.length()
       if args_len != 1 {
-        return "" // deleter は引数1つのはず
+        return "" // deleter should have 1 argument
       }
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
@@ -377,21 +377,21 @@ pub fn gen_special_operation(
 }
 
 ///|
-/// Operation から extern js fn を生成
+/// Generate extern js fn from Operation
 pub fn gen_operation(
   interface_name : String,
   op : OperationDef,
   enum_map : Array[(String, Array[String])],
 ) -> String {
-  // 名前なしの通常メソッドはスキップ
-  // (special operation は gen_interface_binding で処理)
+  // Skip regular methods without name
+  // (special operations are handled in gen_interface_binding)
   if op.name.is_empty() {
     return ""
   }
   let fn_name = escape_reserved(to_snake_case(op.name))
   let return_type = idl_type_to_moonbit(op.return_type)
 
-  // 引数リスト生成
+  // Generate argument list
   let args = StringBuilder::new()
   args.write_string("self : ")
   args.write_string(interface_name)
@@ -399,13 +399,13 @@ pub fn gen_operation(
   for i = 0; i < args_len; i = i + 1 {
     let arg = op.arguments[i]
     args.write_string(", ")
-    // 引数名も予約語をエスケープ
+    // Escape reserved keywords for argument names
     args.write_string(escape_reserved(to_snake_case(arg.name)))
     args.write_string(" : ")
     args.write_string(idl_type_to_moonbit(arg.idl_type))
   }
 
-  // JS呼び出しコード生成
+  // Generate JS call code
   let js_args = StringBuilder::new()
   js_args.write_string("self")
   for i = 0; i < args_len; i = i + 1 {
@@ -414,7 +414,7 @@ pub fn gen_operation(
     js_args.write_string(escape_reserved(to_snake_case(arg.name)))
   }
 
-  // JS 呼び出し引数（enum は配列ルックアップで文字列に変換）
+  // JS call arguments (convert enum to string via array lookup)
   let js_call_args = StringBuilder::new()
   for i = 0; i < args_len; i = i + 1 {
     let arg = op.arguments[i]
@@ -422,7 +422,7 @@ pub fn gen_operation(
       js_call_args.write_string(", ")
     }
     let arg_name = escape_reserved(to_snake_case(arg.name))
-    // 引数の型が enum かチェック
+    // Check if argument type is enum
     match arg.idl_type {
       Named(type_name) =>
         match lookup_enum(enum_map, type_name) {
@@ -453,8 +453,8 @@ pub fn gen_operation(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  // Nullable 型の場合は null チェックを追加
-  // Promise(Nullable(_)) の場合は .then() で変換
+  // Add null check for Nullable types
+  // For Promise(Nullable(_)), convert with .then()
   match op.return_type {
     Nullable(_) => {
       result.write_string(") => { const v = self.")
@@ -486,11 +486,11 @@ pub fn gen_operation(
 }
 
 ///|
-/// 同名operationをグループ化し、引数数でソート
-/// Map型の代わりに Array[(String, Array[OperationDef])] を返す
+/// Group operations by name and sort by argument count
+/// Returns Array[(String, Array[OperationDef])] instead of Map type
 
 ///|
-/// Operation をグループに追加（既存グループがあれば追加、なければ新規作成）
+/// Add Operation to group (add to existing group or create new one)
 fn add_to_operation_group(
   groups : Array[(String, Array[OperationDef])],
   op : OperationDef,
@@ -503,7 +503,7 @@ fn add_to_operation_group(
       return
     }
   }
-  // 新しいグループを作成
+  // Create new group
   groups.push((op.name, [op]))
 }
 
@@ -513,32 +513,32 @@ pub fn group_operations_by_name(
 ) -> Array[(String, Array[OperationDef])] {
   let groups : Array[(String, Array[OperationDef])] = []
 
-  // Operation のみを抽出してグループ化
+  // Extract and group only Operations
   members
   .iter()
   .each(fn(mem) {
     match mem {
       Operation(op) => {
-        // 空名のoperationはスキップ
+        // Skip operations with empty name
         if op.name.is_empty() {
           return
         }
 
-        // 既存のグループを探すか新規作成
+        // Find existing group or create new one
         add_to_operation_group(groups, op)
       }
       _ => ()
     }
   })
 
-  // 各グループ内で「必須引数」数の少ない順にソート
-  // optional引数を持つoperationは、最初のoptional引数の位置を必須引数数とする
+  // Sort each group by number of required arguments (ascending)
+  // For operations with optional arguments, the position of first optional argument is the required count
   for i = 0; i < groups.length(); i = i + 1 {
     let (name, ops) = groups[i]
-    // バブルソート（必須引数数の昇順）
+    // Bubble sort (ascending by required argument count)
     for j = 0; j < ops.length(); j = j + 1 {
       for k = j + 1; k < ops.length(); k = k + 1 {
-        // 必須引数数を計算
+        // Calculate required argument count
         let first_optional_j = find_first_optional_arg_index(ops[j].arguments)
         let required_args_j = if first_optional_j < 0 {
           ops[j].arguments.length()
@@ -565,19 +565,19 @@ pub fn group_operations_by_name(
 }
 
 ///|
-/// オーバーロードのサフィックスを生成（差分ベース）
+/// Generate overload suffix (difference-based)
 ///
-/// Rust web-sysの命名規則に従い、差分引数から "_with_xxx_and_yyy" 形式のサフィックスを生成します。
-/// 注意: 同じ引数数で異なる型のオーバーロードがある場合は gen_overload_suffix_from_all を使用してください。
+/// Following Rust web-sys naming conventions, generates "_with_xxx_and_yyy" style suffix from difference arguments.
+/// Note: For overloads with same argument count but different types, use gen_overload_suffix_from_all instead.
 ///
-/// # 引数
-/// - `base_args`: 最小シグネチャの引数配列
-/// - `full_args`: 現在のオーバーロードの引数配列
+/// # Arguments
+/// - `base_args`: Argument array of minimum signature
+/// - `full_args`: Argument array of current overload
 ///
-/// # 戻り値
-/// - "_with_xxx_and_yyy" 形式のサフィックス（ベース版は空文字列）
+/// # Returns
+/// - "_with_xxx_and_yyy" style suffix (empty string for base version)
 ///
-/// # 例
+/// # Example
 /// ```moonbit
 /// // base_args: [image, dx, dy], full_args: [image, dx, dy]
 /// // → ""
@@ -595,12 +595,12 @@ pub fn gen_overload_suffix(
   let base_len = base_args.length()
   let full_len = full_args.length()
 
-  // 差分がない場合は空文字列
+  // Return empty string if no difference
   if base_len == full_len {
     return ""
   }
 
-  // 差分引数のsnake_case名を収集
+  // Collect snake_case names of difference arguments
   let result = StringBuilder::new()
   result.write_string("_with")
   for i = base_len; i < full_len; i = i + 1 {
@@ -615,7 +615,7 @@ pub fn gen_overload_suffix(
 }
 
 ///|
-/// 引数の型名を snake_case に変換
+/// Convert argument type name to snake_case
 fn arg_type_to_snake_case(arg_type : IdlType) -> String {
   match arg_type {
     Named(name) => to_snake_case(name)
@@ -631,25 +631,25 @@ fn arg_type_to_snake_case(arg_type : IdlType) -> String {
 }
 
 ///|
-/// オーバーロードのサフィックスを全引数から生成
+/// Generate overload suffix from all arguments
 ///
-/// 同じ引数数で異なる型のオーバーロードがある場合に使用します。
-/// 全ての引数名から "_with_xxx_and_yyy" 形式のサフィックスを生成します。
-/// 引数名が同じ場合は型名も含めます。
+/// Used when there are overloads with same argument count but different types.
+/// Generates "_with_xxx_and_yyy" style suffix from all argument names.
+/// Includes type name when argument names are the same.
 ///
-/// # 引数
-/// - `args`: 引数配列
+/// # Arguments
+/// - `args`: Argument array
 ///
-/// # 戻り値
-/// - "_with_xxx_and_yyy" 形式のサフィックス（引数が0個の場合は空文字列）
+/// # Returns
+/// - "_with_xxx_and_yyy" style suffix (empty string if no arguments)
 ///
-/// # 例
+/// # Example
 /// ```moonbit
 /// // args: [name: String]
 /// // → "_with_name"
 ///
 /// // args: [data: Blob]
-/// // → "_with_data_blob"  (型名を含む)
+/// // -> "_with_data_blob"  (includes type name)
 ///
 /// // args: [name: String, value: Int]
 /// // → "_with_name_and_value"
@@ -657,18 +657,18 @@ fn arg_type_to_snake_case(arg_type : IdlType) -> String {
 pub fn gen_overload_suffix_from_all(args : Array[Argument]) -> String {
   let len = args.length()
 
-  // 引数がない場合は空文字列
+  // Return empty string if no arguments
   if len == 0 {
     return ""
   }
 
-  // 全引数のsnake_case名を収集
+  // Collect snake_case names of all arguments
   let parts = args
     .iter()
     .map(fn(arg) {
       let arg_name = to_snake_case(arg.name)
-      // 型名も追加（引数名だけでは区別できない場合のため）
-      // シンプルな型（Named）の場合のみ追加
+      // Also add type name (for cases where argument names alone are not distinguishable)
+      // Only add for simple types (Named)
       match arg.idl_type {
         Named(_) => arg_name + "_" + arg_type_to_snake_case(arg.idl_type)
         _ => arg_name
@@ -688,7 +688,7 @@ pub fn gen_overload_suffix_from_all(args : Array[Argument]) -> String {
 }
 
 ///|
-/// optional引数の最初のインデックスを取得（なければ-1）
+/// Get index of first optional argument (-1 if none)
 fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
   args
   .iter()
@@ -705,8 +705,8 @@ fn find_first_optional_arg_index(args : Array[Argument]) -> Int {
 }
 
 ///|
-/// 指定された引数数でOperation を生成
-/// fn_suffix: 関数名に付けるサフィックス（空文字列の場合はなし）
+/// Generate Operation with specified argument count
+/// fn_suffix: Suffix to add to function name (empty string for none)
 pub fn gen_operation_with_arg_count(
   interface_name : String,
   op : OperationDef,
@@ -725,7 +725,7 @@ pub fn gen_operation_with_arg_count(
   }
   let return_type = idl_type_to_moonbit(op.return_type)
 
-  // 引数リスト生成（arg_count個まで）
+  // Generate argument list (up to arg_count)
   let args = StringBuilder::new()
   args.write_string("self : ")
   args.write_string(interface_name)
@@ -737,7 +737,7 @@ pub fn gen_operation_with_arg_count(
     args.write_string(idl_type_to_moonbit(arg.idl_type))
   }
 
-  // JS呼び出しコード生成
+  // Generate JS call code
   let js_args = StringBuilder::new()
   js_args.write_string("self")
   for i = 0; i < arg_count; i = i + 1 {
@@ -746,7 +746,7 @@ pub fn gen_operation_with_arg_count(
     js_args.write_string(escape_reserved(to_snake_case(arg.name)))
   }
 
-  // JS 呼び出し引数（enum は配列ルックアップで文字列に変換）
+  // JS call arguments (convert enum to string via array lookup)
   let js_call_args = StringBuilder::new()
   for i = 0; i < arg_count; i = i + 1 {
     let arg = op.arguments[i]
@@ -784,8 +784,8 @@ pub fn gen_operation_with_arg_count(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  // Nullable 型の場合は null チェックを追加
-  // Promise(Nullable(_)) の場合は .then() で変換
+  // Add null check for Nullable types
+  // For Promise(Nullable(_)), convert with .then()
   match op.return_type {
     Nullable(_) => {
       result.write_string(") => { const v = self.")
@@ -817,8 +817,8 @@ pub fn gen_operation_with_arg_count(
 }
 
 ///|
-/// Operation のすべてのバリアントを生成（optional引数対応）
-/// 戻り値: (生成されたコード, 登録すべき関数名のリスト)
+/// Generate all variants of Operation (with optional argument support)
+/// Returns: (generated code, list of function names to register)
 pub fn gen_operation_variants(
   interface_name : String,
   op : OperationDef,
@@ -832,7 +832,7 @@ pub fn gen_operation_variants(
   let first_optional = find_first_optional_arg_index(op.arguments)
   let total_args = op.arguments.length()
 
-  // optional引数がない場合は通常生成
+  // Generate normally if no optional arguments
   if first_optional < 0 {
     let code = gen_operation(interface_name, op, enum_map)
     result.write_string(code)
@@ -840,7 +840,7 @@ pub fn gen_operation_variants(
     return (result.to_string(), fn_names)
   }
 
-  // 必須引数のみのベース版を生成
+  // Generate base version with required arguments only
   let base_fn_name = escape_reserved(to_snake_case(op.name))
   let base_code = gen_operation_with_arg_count(
     interface_name, op, enum_map, first_optional, "",
@@ -849,8 +849,8 @@ pub fn gen_operation_variants(
   result.write_string("\n")
   fn_names.push(base_fn_name)
 
-  // 全引数版を生成（サフィックス付き）
-  // 最後のoptional引数の名前をサフィックスにする
+  // Generate full argument version (with suffix)
+  // Use last optional argument name as suffix
   let last_optional_arg = op.arguments[total_args - 1]
   let suffix = "with_" + to_snake_case(last_optional_arg.name)
   let full_code = gen_operation_with_arg_count(
@@ -862,8 +862,8 @@ pub fn gen_operation_variants(
 }
 
 ///|
-/// オーバーロードされた通常operationの全バリアントを生成
-/// グループ内の最小引数版をベース名で、それ以外はサフィックス付きで生成
+/// Generate all variants of overloaded regular operations
+/// Minimum argument version in group uses base name, others use suffix
 pub fn gen_overloaded_operations(
   interface_name : String,
   ops : Array[OperationDef],
@@ -872,12 +872,12 @@ pub fn gen_overloaded_operations(
 ) -> String {
   let result = StringBuilder::new()
 
-  // 空の場合は何も生成しない
+  // Generate nothing if empty
   if ops.length() == 0 {
     return ""
   }
 
-  // 単一のoperationの場合は既存のgen_operation_variantsを使用
+  // For single operation, use existing gen_operation_variants
   if ops.length() == 1 {
     let (code, fn_names) = gen_operation_variants(
       interface_name,
@@ -888,23 +888,23 @@ pub fn gen_overloaded_operations(
     return code
   }
 
-  // 複数のオーバーロードがある場合
-  // 各オーバーロードのoptional引数も考慮して全バリアントを生成
+  // For multiple overloads
+  // Generate all variants considering optional arguments in each overload
 
   for i = 0; i < ops.length(); i = i + 1 {
     let op = ops[i]
     let first_optional = find_first_optional_arg_index(op.arguments)
     let total_args = op.arguments.length()
     if first_optional < 0 {
-      // optional引数がない場合
+      // If no optional arguments
       if i == 0 {
-        // 最初のオーバーロード（最小引数）はベース名で生成
+        // First overload (minimum arguments) uses base name
         let base_fn_name = escape_reserved(to_snake_case(op.name))
         generated_methods.push(base_fn_name)
         result.write_string(gen_operation(interface_name, op, enum_map))
         result.write_string("\n")
       } else {
-        // それ以外は全引数からサフィックスを生成（同じ引数数でも区別される）
+        // Others generate suffix from all arguments (distinguishes even same argument count)
         let suffix = gen_overload_suffix_from_all(op.arguments)
         let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
         generated_methods.push(fn_name)
@@ -920,20 +920,20 @@ pub fn gen_overloaded_operations(
         result.write_string("\n")
       }
     } else {
-      // optional引数がある場合、必須部分と全引数版の両方を生成
+      // For optional arguments, generate both required part and full argument version
       let base_fn_name = escape_reserved(to_snake_case(op.name))
 
-      // 必須引数のみの配列を作成
+      // Create array with required arguments only
       let required_args : Array[Argument] = []
       for j = 0; j < first_optional; j = j + 1 {
         required_args.push(op.arguments[j])
       }
 
-      // 必須引数版
+      // Required arguments version
       let required_suffix = if i == 0 {
         ""
       } else {
-        // 2番目以降のオーバーロードは、必須引数部分から全引数ベースでサフィックス生成
+        // For second and later overloads, generate suffix from all arguments based on required part
         gen_overload_suffix_from_all(required_args)
       }
       let required_fn_name = base_fn_name + required_suffix
@@ -953,13 +953,13 @@ pub fn gen_overloaded_operations(
       )
       result.write_string("\n")
 
-      // 全引数版（全引数からサフィックス生成）
+      // Full arguments version (generate suffix from all arguments)
       let full_suffix = if i == 0 {
-        // 最初のオーバーロードの場合は、最後のoptional引数だけ
+        // For first overload, use only last optional argument
         let last_optional_arg = op.arguments[total_args - 1]
         "_with_" + to_snake_case(last_optional_arg.name)
       } else {
-        // 2番目以降は全引数からサフィックス生成
+        // For second and later, generate suffix from all arguments
         gen_overload_suffix_from_all(op.arguments)
       }
       let full_fn_name = base_fn_name + full_suffix
@@ -980,7 +980,7 @@ pub fn gen_overloaded_operations(
 }
 
 ///|
-/// オーバーロードされたstatic operationの全バリアントを生成
+/// Generate all variants of overloaded static operations
 pub fn gen_overloaded_static_operations(
   interface_name : String,
   ops : Array[OperationDef],
@@ -989,12 +989,12 @@ pub fn gen_overloaded_static_operations(
 ) -> String {
   let result = StringBuilder::new()
 
-  // 空の場合は何も生成しない
+  // Generate nothing if empty
   if ops.length() == 0 {
     return ""
   }
 
-  // 単一のstatic operationの場合は通常生成
+  // For single static operation, generate normally
   if ops.length() == 1 {
     let base_fn_name = escape_reserved(to_snake_case(ops[0].name))
     generated_methods.push(base_fn_name)
@@ -1002,18 +1002,18 @@ pub fn gen_overloaded_static_operations(
     return result.to_string()
   }
 
-  // 複数のオーバーロードがある場合
+  // For multiple overloads
 
   for i = 0; i < ops.length(); i = i + 1 {
     let op = ops[i]
     if i == 0 {
-      // 最初のオーバーロードはベース名で生成
+      // First overload uses base name
       let base_fn_name = escape_reserved(to_snake_case(op.name))
       generated_methods.push(base_fn_name)
       result.write_string(gen_static_operation(interface_name, op, enum_map))
       result.write_string("\n")
     } else {
-      // それ以外は全引数からサフィックスを生成（同じ引数数でも区別される）
+      // Otherwise generate suffix from all arguments (distinguished even with same arg count)
       let suffix = gen_overload_suffix_from_all(op.arguments)
       let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
       generated_methods.push(fn_name)
@@ -1027,7 +1027,7 @@ pub fn gen_overloaded_static_operations(
 }
 
 ///|
-/// Attribute getter を生成
+/// Generate Attribute getter
 pub fn gen_attribute_getter(
   interface_name : String,
   attr : AttributeDef,
@@ -1044,8 +1044,8 @@ pub fn gen_attribute_getter(
   result.write_string(") -> ")
   result.write_string(return_type)
   result.write_string(" =\n")
-  // Nullable 型の場合は null チェックを追加
-  // Promise(Nullable(_)) の場合は .then() で変換
+  // Add null check for Nullable types
+  // For Promise(Nullable(_)), convert with .then()
   match attr.idl_type {
     Nullable(_) => {
       result.write_string("  #| (self) => { const v = self.")
@@ -1071,13 +1071,13 @@ pub fn gen_attribute_getter(
 }
 
 ///|
-/// Attribute setter を生成
+/// Generate Attribute setter
 pub fn gen_attribute_setter(
   interface_name : String,
   attr : AttributeDef,
 ) -> String {
   if attr.is_readonly {
-    return "" // readonly は setter なし
+    return "" // readonly has no setter
   }
   let fn_name = "set_" + to_snake_case(attr.name)
   let value_type = idl_type_to_moonbit(attr.idl_type)
@@ -1098,31 +1098,31 @@ pub fn gen_attribute_setter(
 }
 
 ///|
-/// Const 定数から pub let 宣言を生成
-/// 例: const GLenum ARRAY_BUFFER = 0x8892 → pub let webgl_rendering_context_array_buffer : Int = 0x8892
+/// Generate pub let declaration from Const constant
+/// Example: const GLenum ARRAY_BUFFER = 0x8892 -> pub let webgl_rendering_context_array_buffer : Int = 0x8892
 pub fn gen_const(interface_name : String, const_def : ConstDef) -> String {
   let result = StringBuilder::new()
 
-  // 定数名を生成（インターフェース名_定数名）
-  // 例: WebGLRenderingContext + ARRAY_BUFFER → webgl_rendering_context_array_buffer
+  // Generate constant name (interface_name_constant_name)
+  // Example: WebGLRenderingContext + ARRAY_BUFFER -> webgl_rendering_context_array_buffer
   let interface_prefix = to_snake_case(interface_name)
   let const_suffix = const_name_to_snake_case(const_def.name)
   let const_name = interface_prefix + "_" + const_suffix
 
-  // 型を MoonBit 型に変換（GLenum などは Int にマップ）
+  // Convert type to MoonBit type (GLenum etc. map to Int)
   let moonbit_type = const_type_to_moonbit(const_def.idl_type)
 
-  // 値の変換（16進数はそのまま、文字列は引用符付き）
+  // Convert value (hex as-is, strings with quotes)
   let value = format_const_value(const_def.value, moonbit_type)
 
-  // コメントで元のインターフェース名と定数名を記載
+  // Add comment with original interface name and constant name
   result.write_string("// ")
   result.write_string(interface_name)
   result.write_string(".")
   result.write_string(const_def.name)
   result.write_string("\n")
 
-  // pub let 宣言を生成
+  // Generate pub let declaration
   result.write_string("pub let ")
   result.write_string(const_name)
   result.write_string(" : ")
@@ -1134,15 +1134,15 @@ pub fn gen_const(interface_name : String, const_def : ConstDef) -> String {
 }
 
 ///|
-/// 定数名を snake_case に変換（UPPER_CASE → lower_case）
-/// WebGL の定数は既にアンダースコア区切りなので、単純に小文字化する
+/// Convert constant name to snake_case (UPPER_CASE -> lower_case)
+/// WebGL constants are already underscore-separated, so just lowercase them
 fn const_name_to_snake_case(name : String) -> String {
   String::from_array(
     name
     .to_array()
     .map(fn(c) {
       if c >= 'A' && c <= 'Z' {
-        // 大文字を小文字に変換 (ASCII: 'A'=65, 'a'=97, diff=32)
+        // Convert uppercase to lowercase (ASCII: 'A'=65, 'a'=97, diff=32)
         (c.to_int() + 32).unsafe_to_char()
       } else {
         c
@@ -1152,25 +1152,25 @@ fn const_name_to_snake_case(name : String) -> String {
 }
 
 ///|
-/// Const 用の型変換（GLenum, GLint などは全て Int）
+/// Type conversion for Const (GLenum, GLint, etc. are all Int)
 fn const_type_to_moonbit(idl_type : IdlType) -> String {
   match idl_type {
     Primitive(name) => primitive_to_moonbit(name)
     String => "String"
-    Named(_) => "Int" // GLenum, GLint など WebGL 型は全て Int
+    Named(_) => "Int" // GLenum, GLint, etc. WebGL types are all Int
     _ => "Int"
   }
 }
 
 ///|
-/// 定数値のフォーマット
+/// Format constant value
 fn format_const_value(value : String, moonbit_type : String) -> String {
-  // 空文字列チェック
+  // Check for empty string
   if value.is_empty() {
     return "0"
   }
 
-  // 文字列型の場合は引用符を追加
+  // Add quotes for string type
   if moonbit_type == "String" {
     let result = StringBuilder::new()
     result.write_string("\"")
@@ -1179,7 +1179,7 @@ fn format_const_value(value : String, moonbit_type : String) -> String {
     return result.to_string()
   }
 
-  // Bool型の場合
+  // For Bool type
   if moonbit_type == "Bool" {
     if value == "true" || value == "1" {
       return "true"
@@ -1188,13 +1188,13 @@ fn format_const_value(value : String, moonbit_type : String) -> String {
     }
   }
 
-  // 16進数の場合、MoonBit形式に変換（0x → 0x）
-  // JSの16進数はそのままMoonBitでも使える
+  // For hex, convert to MoonBit format (0x -> 0x)
+  // JS hex can be used as-is in MoonBit
   value
 }
 
 ///|
-/// Constructor から extern js fn を生成
+/// Generate extern js fn from Constructor
 pub fn gen_constructor(
   interface_name : String,
   ctor : ConstructorDef,
@@ -1202,7 +1202,7 @@ pub fn gen_constructor(
 ) -> String {
   let return_type = interface_name
 
-  // 引数リスト生成
+  // Generate argument list
   let args = StringBuilder::new()
   let args_len = ctor.arguments.length()
   for i = 0; i < args_len; i = i + 1 {
@@ -1210,13 +1210,13 @@ pub fn gen_constructor(
     if i > 0 {
       args.write_string(", ")
     }
-    // 引数名も予約語をエスケープ
+    // Escape reserved keywords for argument names
     args.write_string(escape_reserved(to_snake_case(arg.name)))
     args.write_string(" : ")
     args.write_string(idl_type_to_moonbit(arg.idl_type))
   }
 
-  // JS呼び出しコード生成
+  // Generate JS call code
   let js_call_args = StringBuilder::new()
   for i = 0; i < args_len; i = i + 1 {
     let arg = ctor.arguments[i]
@@ -1224,7 +1224,7 @@ pub fn gen_constructor(
       js_call_args.write_string(", ")
     }
     let arg_name = escape_reserved(to_snake_case(arg.name))
-    // 引数の型が enum かチェック
+    // Check if argument type is enum
     match arg.idl_type {
       Named(type_name) =>
         match lookup_enum(enum_map, type_name) {
@@ -1253,7 +1253,7 @@ pub fn gen_constructor(
   result.write_string(" =\n")
   result.write_string("  #| (")
 
-  // JS側の引数リスト（変数名のみ）
+  // JS side argument list (variable names only)
   for i = 0; i < args_len; i = i + 1 {
     let arg = ctor.arguments[i]
     if i > 0 {
@@ -1270,18 +1270,18 @@ pub fn gen_constructor(
 }
 
 ///|
-/// 親インターフェースチェーンを収集（継承チェーンを遡る）
+/// Collect parent interface chain (traverse inheritance chain)
 fn collect_parent_chain(
   interfaces : Array[(String, InterfaceDef)],
   parent_name : String,
   visited : Array[String],
 ) -> Array[String] {
-  // 循環継承の検出
+  // Detect circular inheritance
   if visited.iter().any(fn(v) { v == parent_name }) {
     return []
   }
 
-  // 親インターフェースを検索
+  // Search for parent interface
   let parent_iface = interfaces
     .iter()
     .fold(init=(None : InterfaceDef?), fn(found, entry) {
@@ -1291,7 +1291,7 @@ fn collect_parent_chain(
       }
     })
   match parent_iface {
-    None => [parent_name] // 親が見つからなくても名前は追加（外部型の可能性）
+    None => [parent_name] // Add name even if parent not found (may be external type)
     Some(iface) => {
       let result : Array[String] = [parent_name]
       match iface.inheritance {
@@ -1311,19 +1311,19 @@ fn collect_parent_chain(
 }
 
 ///|
-/// Downcast メソッドを生成（親→子）
+/// Generate downcast methods (parent -> child)
 fn gen_downcast_methods(
   iface : InterfaceDef,
   inheritance_map : Array[(String, Array[String])],
 ) -> String {
   let result = StringBuilder::new()
-  // 継承マップから子孫を取得
+  // Get descendants from inheritance map
   let children = inheritance_map
     .iter()
     .find_first(fn(entry) { entry.0 == iface.name })
   match children {
     Some((_, child_list)) =>
-      // 各子孫に対して as_<child_name> メソッドを生成
+      // Generate as_<child_name> method for each descendant
       child_list
       .iter()
       .each(fn(child_name) {
@@ -1347,7 +1347,7 @@ fn gen_downcast_methods(
 }
 
 ///|
-/// Upcast メソッドを生成（子→親）
+/// Generate upcast methods (child -> parent)
 fn gen_upcast_methods(
   iface : InterfaceDef,
   interfaces : Array[(String, InterfaceDef)],
@@ -1356,11 +1356,11 @@ fn gen_upcast_methods(
   match iface.inheritance {
     None => ()
     Some(parent_name) => {
-      // 親チェーンを収集
+      // Collect parent chain
       let parent_chain = collect_parent_chain(interfaces, parent_name, [
         iface.name,
       ])
-      // 各親に対して to_<parent_name> メソッドを生成
+      // Generate to_<parent_name> method for each parent
       parent_chain
       .iter()
       .each(fn(parent) {
@@ -1382,7 +1382,7 @@ fn gen_upcast_methods(
 }
 
 ///|
-/// Interface 全体から binding コードを生成
+/// Generate binding code from entire Interface
 pub fn gen_interface_binding(
   iface : InterfaceDef,
   enum_map : Array[(String, Array[String])],
@@ -1391,10 +1391,10 @@ pub fn gen_interface_binding(
 ) -> String {
   let result = StringBuilder::new()
 
-  // セグメント分割マーカー（大きなファイルでの65535行制限回避）
+  // Segment marker (for avoiding 65535 line limit in large files)
   result.write_string("///|\n")
 
-  // 型定義
+  // Type definition
   result.write_string("/// ")
   result.write_string(iface.name)
   result.write_string(" interface\n")
@@ -1402,7 +1402,7 @@ pub fn gen_interface_binding(
   result.write_string(iface.name)
   result.write_string("\n\n")
 
-  // to_js_value メソッド生成
+  // Generate to_js_value method
   result.write_string("pub extern \"js\" fn ")
   result.write_string(iface.name)
   result.write_string("::to_js_value(self : ")
@@ -1410,7 +1410,7 @@ pub fn gen_interface_binding(
   result.write_string(") -> JsValue =\n")
   result.write_string("  #| (self) => self\n\n")
 
-  // JsValue キャストメソッド生成
+  // Generate JsValue cast methods
   let snake_name = to_snake_case(iface.name)
 
   // from_js_value: unchecked cast from JsValue
@@ -1461,10 +1461,10 @@ pub fn gen_interface_binding(
   result.write_string(" =\n")
   result.write_string("  #| (self) => self\n\n")
 
-  // Upcast メソッド生成（子→親）
+  // Generate upcast methods (child -> parent)
   result.write_string(gen_upcast_methods(iface, interfaces))
 
-  // Downcast メソッド生成（親→子）
+  // Generate downcast methods (parent -> child)
   result.write_string(gen_downcast_methods(iface, inheritance_map))
 
   // Track generated method names to avoid duplicates
@@ -1475,16 +1475,16 @@ pub fn gen_interface_binding(
   // Group operations by name for overload handling
   let operation_groups = group_operations_by_name(iface.members)
 
-  // メンバー生成
+  // Generate members
   let members_len = iface.members.length()
   for i = 0; i < members_len; i = i + 1 {
     let mem = iface.members[i]
     match mem {
       Operation(op) =>
-        // special operation の処理
+        // Handle special operations
         match op.special {
           Some("getter") | Some("setter") | Some("deleter") => {
-            // 名前付き special operation は通常メソッドとして生成
+            // Generate named special operations as regular methods
             if not(op.name.is_empty()) {
               let fn_name = to_snake_case(op.name)
               if not(generated_methods.contains(fn_name)) {
@@ -1493,10 +1493,10 @@ pub fn gen_interface_binding(
                 result.write_string("\n")
               }
             }
-            // special メソッド (get/set/delete) も生成
+            // Also generate special methods (get/set/delete)
             let special_name = match op.special {
               Some("getter") =>
-                // getter は引数の型で判別
+                // Distinguish getter by argument type
                 if op.arguments.length() > 0 {
                   match op.arguments[0].idl_type {
                     Primitive(_) => "get"
@@ -1566,7 +1566,7 @@ pub fn gen_interface_binding(
             }
           }
           _ => {
-            // 通常の operation - handle both overloads and optional arguments
+            // Regular operation - handle both overloads and optional arguments
             let base_fn_name = to_snake_case(op.name)
             if not(generated_methods.contains(base_fn_name)) {
               // Find all operations with this name
@@ -1611,7 +1611,7 @@ pub fn gen_interface_binding(
         }
       }
       Constructor(ctor) =>
-        // 最初のコンストラクタのみ生成（overload は無視）
+        // Generate only first constructor (ignore overloads)
         if not(has_constructor) {
           has_constructor = true
           result.write_string(gen_constructor(iface.name, ctor, enum_map))
@@ -1643,7 +1643,7 @@ pub fn gen_interface_binding(
 }
 
 ///|
-/// Maplike のメソッドを生成
+/// Generate Maplike methods
 fn gen_maplike_methods(
   interface_name : String,
   maplike : MaplikeDef,
@@ -1730,7 +1730,7 @@ fn gen_maplike_methods(
 }
 
 ///|
-/// Setlike のメソッドを生成
+/// Generate Setlike methods
 fn gen_setlike_methods(
   interface_name : String,
   setlike : SetlikeDef,

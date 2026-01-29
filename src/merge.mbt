@@ -1,8 +1,8 @@
-// 定義マージ・継承解決ロジック
+// Definition merge and inheritance resolution logic
 
 ///|
-/// Partial 定義をマージして統合された定義配列を返す
-/// 継承関係も解決して親メンバーを子に展開する
+/// Merge partial definitions and return consolidated definition array
+/// Also resolves inheritance by expanding parent members into children
 pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
   // Step 1: Collect all non-partial definitions into a map by name
   // Deduplicate interfaces and dictionaries by merging members
@@ -118,7 +118,7 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
 }
 
 ///|
-/// Interface を配列にマージまたは追加
+/// Merge or add Interface to array
 fn merge_or_add_interface(
   interfaces : Array[(String, InterfaceDef)],
   iface : InterfaceDef,
@@ -148,7 +148,7 @@ fn merge_or_add_interface(
 }
 
 ///|
-/// Dictionary を配列にマージまたは追加
+/// Merge or add Dictionary to array
 fn merge_or_add_dictionary(
   dictionaries : Array[(String, DictionaryDef)],
   dict : DictionaryDef,
@@ -176,7 +176,7 @@ fn merge_or_add_dictionary(
 }
 
 ///|
-/// Mixin メンバーを Interface にマージ
+/// Merge Mixin members into Interface
 fn merge_mixin_into_interface(
   interfaces : Array[(String, InterfaceDef)],
   target_name : String,
@@ -204,7 +204,7 @@ fn merge_mixin_into_interface(
 }
 
 ///|
-/// Mixin を配列にマージまたは追加
+/// Merge or add Mixin to array
 fn merge_or_add_mixin(
   mixins : Array[(String, InterfaceMixinDef)],
   mix_def : InterfaceMixinDef,
@@ -229,7 +229,7 @@ fn merge_or_add_mixin(
 }
 
 ///|
-/// Interface メンバーをマージ（重複検出付き）
+/// Merge Interface members (with duplicate detection)
 fn merge_interface_members(
   existing : Array[InterfaceMember],
   new_members : Array[InterfaceMember],
@@ -252,7 +252,7 @@ fn merge_interface_members(
 }
 
 ///|
-/// メンバーの名前を取得
+/// Get member name
 fn get_member_name(mem : InterfaceMember) -> String {
   match mem {
     Operation(op) => op.name
@@ -265,7 +265,7 @@ fn get_member_name(mem : InterfaceMember) -> String {
 }
 
 ///|
-/// Dictionary メンバーをマージ（重複検出付き）
+/// Merge Dictionary members (with duplicate detection)
 fn merge_dictionary_members(
   existing : Array[DictionaryMember],
   new_members : Array[DictionaryMember],
@@ -291,25 +291,25 @@ fn merge_dictionary_members(
 }
 
 ///|
-/// Dictionary の継承関係を解決
+/// Resolve Dictionary inheritance
 fn resolve_dictionary_inheritance(
   dictionaries : Array[(String, DictionaryDef)],
 ) -> Unit {
-  // 元の定義をコピー（継承解決前の状態を保持）
+  // Copy original definitions (preserve state before inheritance resolution)
   let original = dictionaries.copy()
 
-  // 各 dictionary の継承を解決（元の定義から収集）
+  // Resolve inheritance for each dictionary (collect from original definitions)
   for i = 0; i < dictionaries.length(); i = i + 1 {
     let (name, dict) = dictionaries[i]
     match dict.inheritance {
       Some(parent_name) => {
-        // 親のメンバーを収集（元の定義から、循環参照チェック付き）
+        // Collect parent members (from original definitions, with circular reference check)
         let visited : Array[String] = [name]
         let inherited_members = collect_inherited_dictionary_members(
-          original, // 元の定義を使う（展開前）
+          original, // Use original definitions (before expansion)
            parent_name, visited,
         )
-        // 親のメンバーを子の先頭に追加
+        // Prepend parent members to child
         let combined = merge_dictionary_members(inherited_members, dict.members)
         let new_dict : DictionaryDef = {
           name: dict.name,
@@ -324,21 +324,21 @@ fn resolve_dictionary_inheritance(
 }
 
 ///|
-/// 継承マップを構築（親→子リスト）
-/// downcast メソッド生成に使用
+/// Build inheritance map (parent -> children list)
+/// Used for generating downcast methods
 pub fn build_inheritance_map(
   interfaces : Array[(String, InterfaceDef)],
 ) -> Array[(String, Array[String])] {
   let result : Array[(String, Array[String])] = []
 
-  // 各インターフェースについて、親→子の関係を登録
+  // Register parent -> child relationships for each interface
   interfaces
   .iter()
   .each(fn(entry) {
     let (child_name, iface) = entry
     match iface.inheritance {
       Some(parent_name) =>
-        // 親チェーン全体に対して子を登録
+        // Register child to entire parent chain
         add_child_to_ancestors(result, interfaces, parent_name, child_name, [])
       None => ()
     }
@@ -347,7 +347,7 @@ pub fn build_inheritance_map(
 }
 
 ///|
-/// 祖先全体に子を追加
+/// Add child to all ancestors
 fn add_child_to_ancestors(
   inheritance_map : Array[(String, Array[String])],
   interfaces : Array[(String, InterfaceDef)],
@@ -355,15 +355,15 @@ fn add_child_to_ancestors(
   child_name : String,
   visited : Array[String],
 ) -> Unit {
-  // 循環参照チェック
+  // Circular reference check
   if visited.contains(parent_name) {
     return
   }
 
-  // 親に子を追加
+  // Add child to parent
   add_child_to_parent(inheritance_map, parent_name, child_name)
 
-  // 親の親も探して追加
+  // Find and add grandparent too
   let parent_iface = interfaces
     .iter()
     .find_first(fn(entry) { entry.0 == parent_name })
@@ -384,13 +384,13 @@ fn add_child_to_ancestors(
 }
 
 ///|
-/// 継承マップに子を追加
+/// Add child to inheritance map
 fn add_child_to_parent(
   inheritance_map : Array[(String, Array[String])],
   parent_name : String,
   child_name : String,
 ) -> Unit {
-  // 既存のエントリを探す
+  // Find existing entry
   for i = 0; i < inheritance_map.length(); i = i + 1 {
     let (name, children) = inheritance_map[i]
     if name == parent_name {
@@ -400,18 +400,18 @@ fn add_child_to_parent(
       return
     }
   }
-  // 新規エントリを作成
+  // Create new entry
   inheritance_map.push((parent_name, [child_name]))
 }
 
 ///|
-/// 親 dictionary のメンバーを再帰的に収集
+/// Recursively collect parent dictionary members
 fn collect_inherited_dictionary_members(
   dictionaries : Array[(String, DictionaryDef)],
   parent_name : String,
   visited : Array[String],
 ) -> Array[DictionaryMember] {
-  // 循環継承の検出
+  // Detect circular inheritance
   if visited.iter().any(fn(v) { v == parent_name }) {
     println(
       "Warning: Circular inheritance detected in dictionary: " +
@@ -421,7 +421,7 @@ fn collect_inherited_dictionary_members(
     return []
   }
 
-  // 親 dictionary を検索
+  // Search for parent dictionary
   let parent_dict = dictionaries
     .iter()
     .fold(init=(None : DictionaryDef?), fn(found, entry) {
@@ -431,11 +431,11 @@ fn collect_inherited_dictionary_members(
       }
     })
 
-  // 親が見つからない場合は空配列
+  // Return empty array if parent not found
   match parent_dict {
     None => []
     Some(dict) => {
-      // 親のさらに親のメンバーを再帰的に収集
+      // Recursively collect grandparent members
       let grandparent_members = match dict.inheritance {
         Some(grandparent_name) => {
           let new_visited = visited.copy()
@@ -447,7 +447,7 @@ fn collect_inherited_dictionary_members(
         None => []
       }
 
-      // 祖先のメンバー + 親自身のメンバー（重複チェック付き）
+      // Ancestor members + parent's own members (with duplicate check)
       let result = grandparent_members
         .iter()
         .fold(init=Array::new(), fn(acc : Array[DictionaryMember], mem) {
@@ -456,7 +456,7 @@ fn collect_inherited_dictionary_members(
           }
           acc
         })
-      // 親のメンバーを追加（祖父と重複する場合は親を優先）
+      // Add parent members (parent takes priority over grandparent duplicates)
       dict.members
       .iter()
       .fold(init=result, fn(acc, mem) {

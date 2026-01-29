@@ -1,7 +1,7 @@
-// WebIDL AST 型定義
+// WebIDL AST type definitions
 
 ///|
-/// WebIDL の定義全体
+/// WebIDL definition
 pub enum Definition {
   Interface(InterfaceDef)
   InterfaceMixin(InterfaceMixinDef)
@@ -14,40 +14,40 @@ pub enum Definition {
 }
 
 ///|
-/// Includes ステートメント（インターフェースがmixinを含む）
+/// Includes statement (interface includes mixin)
 pub struct IncludesDef {
-  target : String // mixin を受け取るインターフェース名
-  includes : String // mixin 名
+  target : String // interface name that receives the mixin
+  includes : String // mixin name
 }
 
 ///|
-/// Interface 定義
+/// Interface definition
 pub struct InterfaceDef {
   name : String
   members : Array[InterfaceMember]
-  inheritance : String? // 継承元
+  inheritance : String? // parent interface
   extended_attrs : Array[ExtendedAttribute]
 }
 
 ///|
-/// Interface Mixin 定義
+/// Interface Mixin definition
 pub struct InterfaceMixinDef {
   name : String
   members : Array[InterfaceMember]
 }
 
 ///|
-/// Callback Interface 定義
+/// Callback Interface definition
 /// callback interface EventListener { void handleEvent(Event event); }
-/// または callback FrameRequestCallback = void (DOMHighResTimeStamp time);
+/// or callback FrameRequestCallback = void (DOMHighResTimeStamp time);
 pub struct CallbackInterfaceDef {
   name : String
-  return_type : IdlType? // void の場合は None
-  arguments : Array[Argument] // コールバックの引数
+  return_type : IdlType? // None for void
+  arguments : Array[Argument] // callback arguments
 }
 
 ///|
-/// Interface メンバー
+/// Interface member
 pub enum InterfaceMember {
   Operation(OperationDef)
   Attribute(AttributeDef)
@@ -58,7 +58,7 @@ pub enum InterfaceMember {
 }
 
 ///|
-/// Maplike 定義
+/// Maplike definition
 pub struct MaplikeDef {
   key_type : IdlType
   value_type : IdlType
@@ -66,14 +66,14 @@ pub struct MaplikeDef {
 }
 
 ///|
-/// Setlike 定義
+/// Setlike definition
 pub struct SetlikeDef {
   value_type : IdlType
   is_readonly : Bool
 }
 
 ///|
-/// 操作（メソッド）定義
+/// Operation (method) definition
 pub struct OperationDef {
   name : String
   return_type : IdlType
@@ -82,7 +82,7 @@ pub struct OperationDef {
 }
 
 ///|
-/// 属性定義
+/// Attribute definition
 pub struct AttributeDef {
   name : String
   idl_type : IdlType
@@ -90,7 +90,7 @@ pub struct AttributeDef {
 }
 
 ///|
-/// 引数定義
+/// Argument definition
 pub struct Argument {
   name : String
   idl_type : IdlType
@@ -99,13 +99,13 @@ pub struct Argument {
 }
 
 ///|
-/// コンストラクタ定義
+/// Constructor definition
 pub struct ConstructorDef {
   arguments : Array[Argument]
 }
 
 ///|
-/// 定数定義
+/// Const definition
 pub struct ConstDef {
   name : String
   idl_type : IdlType
@@ -113,7 +113,7 @@ pub struct ConstDef {
 }
 
 ///|
-/// Dictionary 定義
+/// Dictionary definition
 pub struct DictionaryDef {
   name : String
   members : Array[DictionaryMember]
@@ -121,7 +121,7 @@ pub struct DictionaryDef {
 }
 
 ///|
-/// Dictionary メンバー
+/// Dictionary member
 pub struct DictionaryMember {
   name : String
   idl_type : IdlType
@@ -130,28 +130,28 @@ pub struct DictionaryMember {
 }
 
 ///|
-/// Enum 定義
+/// Enum definition
 pub struct EnumDef {
   name : String
   values : Array[String]
 }
 
 ///|
-/// Typedef 定義
+/// Typedef definition
 pub struct TypedefDef {
   name : String
   idl_type : IdlType
 }
 
 ///|
-/// Partial 定義
+/// Partial definition
 pub struct PartialDef {
   target : String // interface or dictionary name
   members : Array[InterfaceMember]
 }
 
 ///|
-/// IDL 型
+/// IDL type
 pub enum IdlType {
   Primitive(String) // "double", "boolean", "long", etc.
   String // DOMString
@@ -159,32 +159,32 @@ pub enum IdlType {
   Promise(IdlType) // Promise<T>
   Nullable(IdlType) // T?
   Union(Array[IdlType]) // (A or B)
-  Named(String) // カスタム型名
+  Named(String) // custom type name
   Any
   Void // undefined
 }
 
 ///|
-/// 拡張属性（将来のパース実装用）
+/// Extended attribute (for future parsing implementation)
 pub(all) struct ExtendedAttribute {
   name : String
   value : String?
 } derive(Show)
 
 ///|
-/// inline Union の収集用型（Union 名 → メンバー型）
+/// Collector type for inline unions (union name -> member types)
 pub struct InlineUnionCollector {
   entries : Array[(String, Array[IdlType])]
 }
 
 ///|
-/// 空のコレクタを作成
+/// Create empty collector
 pub fn InlineUnionCollector::new() -> InlineUnionCollector {
   { entries: [] }
 }
 
 ///|
-/// コレクタに追加
+/// Add to collector
 pub fn InlineUnionCollector::push(
   self : InlineUnionCollector,
   entry : (String, Array[IdlType]),
@@ -193,7 +193,7 @@ pub fn InlineUnionCollector::push(
 }
 
 ///|
-/// コレクタのイテレーション用
+/// Iterator for collector
 pub fn InlineUnionCollector::iter(
   self : InlineUnionCollector,
 ) -> Iter[(String, Array[IdlType])] {
@@ -201,13 +201,13 @@ pub fn InlineUnionCollector::iter(
 }
 
 ///|
-/// コレクタの長さ
+/// Length of collector
 pub fn InlineUnionCollector::length(self : InlineUnionCollector) -> Int {
   self.entries.length()
 }
 
 ///|
-/// WebIDL 型を MoonBit 型に変換（シンプル版、Union は JsValue）
+/// Convert WebIDL type to MoonBit type (simple version, Union as JsValue)
 pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
   match self {
     Primitive(name) => primitive_to_moonbit(name)
@@ -215,9 +215,9 @@ pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
     Void => "Unit"
     Nullable(inner) => {
       let inner_type = inner.to_moonbit_simple()
-      // 二重 nullable の場合は Nullable[T] に変換
+      // For double nullable, convert to Nullable[T]
       if ends_with_question(inner_type) {
-        // T? が来た → Nullable[T] に変換
+        // T? received -> convert to Nullable[T]
         let base_type = remove_trailing_question(inner_type)
         "Nullable[" + base_type + "]"
       } else {
@@ -225,7 +225,7 @@ pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
       }
     }
     Named(name) => {
-      // 小文字始まりの型名は JsValue に変換（object など無効な型名）
+      // Convert lowercase type names to JsValue (invalid type names like object)
       let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         "JsValue"
@@ -234,7 +234,7 @@ pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
       }
     }
     Sequence(inner) =>
-      // nullable 要素は JsValue として扱う（Rust web-sys 方式）
+      // Treat nullable elements as JsValue (Rust web-sys style)
       match inner {
         Nullable(_) => "Array[JsValue]"
         _ => {
@@ -252,8 +252,8 @@ pub fn IdlType::to_moonbit_simple(self : IdlType) -> String {
 }
 
 ///|
-/// Union 型の名前を生成（メンバー型から一意な名前を生成）
-/// 例: (Blob or DOMString) → "BlobOrString"
+/// Generate union type name (generate unique name from member types)
+/// Example: (Blob or DOMString) -> "BlobOrString"
 pub fn generate_union_name(members : Array[IdlType]) -> String {
   let parts : Array[String] = members
     .iter()
@@ -266,7 +266,7 @@ pub fn generate_union_name(members : Array[IdlType]) -> String {
       }
     })
     .collect()
-  // メンバー名を結合（例: StringOrCanvasGradientOrCanvasPattern）
+  // Join member names (e.g., StringOrCanvasGradientOrCanvasPattern)
   let result = StringBuilder::new()
   ignore(
     parts
@@ -283,16 +283,16 @@ pub fn generate_union_name(members : Array[IdlType]) -> String {
 }
 
 ///|
-/// Union メンバーの型名を取得（名前生成用）
+/// Get union member type name (for name generation)
 fn get_union_member_name(idl_type : IdlType) -> String {
   match idl_type {
     Primitive(name) =>
       match name {
-        // 文字列系は "String" にマップ
+        // Map string types to "String"
         "DOMString" | "USVString" | "ByteString" => "String"
         _ => {
           let result = primitive_to_moonbit(name)
-          // 未知の型（JsValue）の場合は capitalize_first にフォールバック
+          // For unknown types (JsValue), fall back to capitalize_first
           if result == "JsValue" {
             capitalize_first(name)
           } else {
@@ -302,7 +302,7 @@ fn get_union_member_name(idl_type : IdlType) -> String {
       }
     String => "String"
     Named(name) => {
-      // 小文字始まりの場合は大文字化（bigint など）
+      // Capitalize if starts with lowercase (e.g., bigint)
       let first_char = get_first_char(name)
       if first_char >= 'a' && first_char <= 'z' {
         capitalize_first(name)
@@ -335,7 +335,7 @@ fn get_union_member_name(idl_type : IdlType) -> String {
       }
     }
     Union(members) =>
-      // ネストされた Union は再帰的に名前を生成
+      // Generate name recursively for nested unions
       generate_union_name(members)
     Void => "Void"
     Any => "Any"
@@ -343,7 +343,7 @@ fn get_union_member_name(idl_type : IdlType) -> String {
 }
 
 ///|
-/// 文字列の最初の文字を大文字にする
+/// Capitalize the first character of a string
 fn capitalize_first(s : String) -> String {
   let chars = s.to_array()
   if chars.is_empty() {

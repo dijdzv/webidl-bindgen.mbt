@@ -1,27 +1,27 @@
-// @webref/idl FFI - Web仕様からWebIDLを取得
+// @webref/idl FFI - Fetch WebIDL from Web specifications
 //
-// @webref/idl は W3C/WHATWG の Web 仕様から WebIDL 定義を取得するライブラリ
+// @webref/idl is a library to fetch WebIDL definitions from W3C/WHATWG Web specs
 // https://www.npmjs.com/package/@webref/idl
 
 ///|
-/// 仕様データを格納する型 (JS オブジェクト)
+/// Type for storing specs data (JS object)
 pub type SpecsData
 
 ///|
-/// 仕様オブジェクトを格納する型 (個別の仕様)
+/// Type for storing spec object (individual spec)
 pub type SpecObject
 
 // =============================================================================
-// Promise を返す FFI
+// FFI that returns Promise
 // =============================================================================
 
 ///|
-/// @webref/idl の listAll() を呼び出し、Promise<SpecsData> を返す
+/// Call @webref/idl listAll() and return Promise<SpecsData>
 extern "js" fn list_all_specs_promise() -> @js_async.Promise[SpecsData] =
   #| () => require('@webref/idl').listAll()
 
 ///|
-/// 仕様オブジェクトから WebIDL テキストを取得し、Promise<String> を返す
+/// Get WebIDL text from spec object and return Promise<String>
 extern "js" fn get_idl_text_promise(
   spec_obj : SpecObject,
 ) -> @js_async.Promise[String] =
@@ -33,11 +33,11 @@ extern "js" fn get_idl_text_promise(
   #| }
 
 // =============================================================================
-// 同期 FFI (即座に結果を返せるもの)
+// Synchronous FFI (returns results immediately)
 // =============================================================================
 
 ///|
-/// 仕様データから特定の仕様オブジェクトを取得
+/// Get specific spec object from specs data
 pub extern "js" fn get_spec_object(
   specs : SpecsData,
   spec_name : String,
@@ -45,45 +45,45 @@ pub extern "js" fn get_spec_object(
   #| (specs, specName) => specs[specName]
 
 ///|
-/// 仕様オブジェクトの存在チェック
+/// Check if spec object exists
 pub extern "js" fn spec_exists(specs : SpecsData, spec_name : String) -> Bool =
   #| (specs, specName) => specs[specName] !== undefined
 
 ///|
-/// 仕様データから仕様名の一覧を取得
+/// Get list of spec names from specs data
 pub extern "js" fn get_spec_names(specs : SpecsData) -> JsArray =
   #| (specs) => Object.keys(specs)
 
 ///|
-/// 配列から文字列を取得
+/// Get string from array
 pub extern "js" fn get_string_from_array(arr : JsArray, index : Int) -> String =
   #| (arr, index) => arr[index] || ''
 
 // =============================================================================
-// 高レベル async API
+// High-level async API
 // =============================================================================
 
 ///|
-/// @webref/idl の listAll() を呼び出し、全仕様のメタデータを取得
+/// Call @webref/idl listAll() and get metadata for all specs
 pub async fn list_all_specs() -> SpecsData {
   list_all_specs_promise().wait()
 }
 
 ///|
-/// 仕様オブジェクトから WebIDL テキストを取得
+/// Get WebIDL text from spec object
 pub async fn get_spec_idl_text(spec_obj : SpecObject) -> String {
   get_idl_text_promise(spec_obj).wait()
 }
 
 ///|
-/// 仕様データから直接 WebIDL テキストを取得（便利関数）
+/// Get WebIDL text directly from specs data (convenience function)
 pub async fn get_idl_by_name(specs : SpecsData, spec_name : String) -> String {
   let spec_obj = get_spec_object(specs, spec_name)
   get_spec_idl_text(spec_obj)
 }
 
 ///|
-/// 仕様のロード結果
+/// Spec load result
 pub struct SpecLoadResult {
   spec_name : String
   definitions : Array[Definition]
@@ -92,7 +92,7 @@ pub struct SpecLoadResult {
 }
 
 ///|
-/// 複数仕様をロードし、全定義を統合
+/// Load multiple specs and merge all definitions
 pub async fn load_multiple_specs(
   specs : SpecsData,
   spec_names : Array[String],
@@ -159,7 +159,7 @@ pub async fn load_multiple_specs(
 }
 
 ///|
-/// 全仕様名を配列として取得
+/// Get all spec names as array
 pub fn get_all_spec_names(specs : SpecsData) -> Array[String] {
   let js_names = get_spec_names(specs)
   let len = js_array_length(js_names)
@@ -173,7 +173,7 @@ pub fn get_all_spec_names(specs : SpecsData) -> Array[String] {
 }
 
 ///|
-/// ロード結果から全定義を統合
+/// Merge all definitions from load results
 pub fn merge_all_results(results : Array[SpecLoadResult]) -> Array[Definition] {
   results
   .iter()

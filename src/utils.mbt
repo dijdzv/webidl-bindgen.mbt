@@ -1,19 +1,19 @@
-// 共通ユーティリティ関数
+// Common utility functions
 
 ///|
-/// 文字列が ? で終わるかチェック
+/// Check if string ends with ?
 pub fn ends_with_question(s : String) -> Bool {
   s.to_array().last() == Some('?')
 }
 
 ///|
-/// 文字列の最初の文字を取得
+/// Get first character of string
 pub fn get_first_char(s : String) -> Char {
   s.to_array().get(0).unwrap_or(' ')
 }
 
 ///|
-/// 文字列の末尾の ? を削除
+/// Remove trailing ? from string
 pub fn remove_trailing_question(s : String) -> String {
   let chars = s.to_array()
   let len = chars.length()
@@ -24,8 +24,8 @@ pub fn remove_trailing_question(s : String) -> String {
 }
 
 ///|
-/// snake_case に変換（アクロニムを正しく扱う）
-/// 例: UIEvent → ui_event, HTMLElement → html_element, XMLHttpRequest → xml_http_request
+/// Convert to snake_case (handles acronyms correctly)
+/// Example: UIEvent -> ui_event, HTMLElement -> html_element, XMLHttpRequest -> xml_http_request
 pub fn to_snake_case(name : String) -> String {
   let chars = name.to_array()
   let len = chars.length()
@@ -49,13 +49,13 @@ pub fn to_snake_case(name : String) -> String {
       } else {
         false
       }
-      // アンダースコアを挿入する条件：
-      // 1. 先頭でない AND
-      // 2. (前が小文字 OR (前が大文字で次が小文字))
+      // Conditions to insert underscore:
+      // 1. Not at the beginning AND
+      // 2. (previous is lowercase OR (previous is uppercase and next is lowercase))
       if i > 0 && (not(prev_is_upper) || (prev_is_upper && next_is_lower)) {
         result.write_char('_')
       }
-      // 大文字を小文字に変換
+      // Convert uppercase to lowercase
       let lower = (c.to_int() + 32).unsafe_to_char()
       result.write_char(lower)
     } else if c == '-' {
@@ -68,7 +68,7 @@ pub fn to_snake_case(name : String) -> String {
 }
 
 ///|
-/// 文字列を PascalCase に変換
+/// Convert string to PascalCase
 pub fn to_pascal_case(s : String) -> String {
   if s.is_empty() {
     return "Empty"
@@ -78,7 +78,7 @@ pub fn to_pascal_case(s : String) -> String {
     .iter()
     .fold(init=("", true, true), fn(state, c) {
       let (result, capitalize_next, first_char) = state
-      // セパレータ文字（次の文字を大文字化、文字自体は除去）
+      // Separator characters (capitalize next character, remove the separator itself)
       if c == '-' ||
         c == '_' ||
         c == ' ' ||
@@ -89,11 +89,11 @@ pub fn to_pascal_case(s : String) -> String {
         c == '*' {
         (result, true, first_char)
       } else if capitalize_next {
-        // 最初の文字が数字なら N を前置 (N1, N2d など)
+        // Prepend N if first character is a digit (N1, N2d, etc.)
         if first_char && c >= '0' && c <= '9' {
           (result + "N" + c.to_string(), false, false)
         } else if c >= 'a' && c <= 'z' {
-          // 小文字を大文字に変換 (ASCII: 'a'=97, 'A'=65, diff=32)
+          // Convert lowercase to uppercase (ASCII: 'a'=97, 'A'=65, diff=32)
           let upper = (c.to_int() - 32).unsafe_to_char()
           (result + upper.to_string(), false, false)
         } else {
@@ -107,7 +107,7 @@ pub fn to_pascal_case(s : String) -> String {
 }
 
 ///|
-/// MoonBit の予約語をエスケープ
+/// Escape MoonBit reserved keywords
 pub fn escape_reserved(name : String) -> String {
   // MoonBit reserved keywords (including future reserved keywords that cause warnings)
   match name {
@@ -166,8 +166,8 @@ pub fn escape_reserved(name : String) -> String {
 }
 
 ///|
-/// WebIDL プリミティブ型を MoonBit 型に変換
-/// 未知のプリミティブは警告を出して "JsValue" を返す
+/// Convert WebIDL primitive type to MoonBit type
+/// Unknown primitives print a warning and return "JsValue"
 pub fn primitive_to_moonbit(name : String) -> String {
   match name {
     "boolean" => "Bool"

@@ -1,7 +1,7 @@
-// 型所有権管理ロジック
+// Type ownership management logic
 
 ///|
-/// 定義から型名を取得
+/// Get type name from definition
 fn get_definition_name(def : Definition) -> String {
   match def {
     Interface(iface) => iface.name
@@ -16,8 +16,8 @@ fn get_definition_name(def : Definition) -> String {
 }
 
 ///|
-/// グローバル型所有権マップを構築（型名 -> 所有仕様名、最初の定義が優先）
-/// Note: Partial定義は所有権を持たない（元の型を定義する仕様が所有者）
+/// Build global type ownership map (type name -> owner spec name, first definition wins)
+/// Note: Partial definitions do not have ownership (the spec defining the original type owns it)
 pub fn build_global_type_ownership(
   results : Array[SpecLoadResult],
 ) -> Array[(String, String)] {
@@ -45,7 +45,7 @@ pub fn build_global_type_ownership(
 }
 
 ///|
-/// 型の所有者を取得
+/// Get owner of a type
 fn get_type_owner(
   ownership : Array[(String, String)],
   type_name : String,
@@ -64,7 +64,7 @@ fn get_type_owner(
 }
 
 ///|
-/// 仕様が所有する定義のみをフィルタリング
+/// Filter definitions to only those owned by a spec
 pub fn filter_definitions_by_owner(
   definitions : Array[Definition],
   spec_name : String,

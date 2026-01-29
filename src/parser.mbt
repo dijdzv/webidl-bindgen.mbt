@@ -1,15 +1,15 @@
-// WebIDL パーサー - webidl2.js FFI
+// WebIDL Parser - webidl2.js FFI
 
 ///|
-/// JavaScript の値を表す型
+/// Type representing a JavaScript value
 pub type JsValue
 
 ///|
-/// JSON配列を表す型
+/// Type representing a JavaScript array
 pub type JsArray
 
 ///|
-/// webidl2.js の parse 関数を呼び出し
+/// Call webidl2.js parse function
 pub extern "js" fn parse_webidl_raw(source : String) -> JsValue =
   #| (source) => {
   #|   try {
@@ -20,97 +20,97 @@ pub extern "js" fn parse_webidl_raw(source : String) -> JsValue =
   #| }
 
 ///|
-/// パース結果が成功かチェック
+/// Check if parse result is successful
 pub extern "js" fn is_parse_success(result : JsValue) -> Bool =
   #| (result) => result.success === true
 
 ///|
-/// パース結果からエラーメッセージを取得
+/// Get error message from parse result
 pub extern "js" fn get_parse_error(result : JsValue) -> String =
   #| (result) => result.error || "Unknown error"
 
 ///|
-/// パース結果からデータを取得
+/// Get data from parse result
 pub extern "js" fn get_parse_data(result : JsValue) -> JsArray =
   #| (result) => result.data
 
 ///|
-/// 配列の長さを取得
+/// Get array length
 pub extern "js" fn js_array_length(arr : JsArray) -> Int =
   #| (arr) => arr.length
 
 ///|
-/// 配列から要素を取得
+/// Get element from array by index
 pub extern "js" fn js_array_get(arr : JsArray, index : Int) -> JsValue =
   #| (arr, index) => arr[index]
 
 ///|
-/// オブジェクトのtype プロパティを取得
+/// Get type property from object
 pub extern "js" fn get_type(obj : JsValue) -> String =
   #| (obj) => obj.type || ""
 
 ///|
-/// オブジェクトの name プロパティを取得
+/// Get name property from object
 pub extern "js" fn get_name(obj : JsValue) -> String =
   #| (obj) => obj.name || ""
 
 ///|
-/// オブジェクトの members プロパティを取得
+/// Get members property from object
 pub extern "js" fn get_members(obj : JsValue) -> JsArray =
   #| (obj) => obj.members || []
 
 ///|
-/// オブジェクトの idlType プロパティを取得
+/// Get idlType property from object
 pub extern "js" fn get_idl_type(obj : JsValue) -> JsValue =
   #| (obj) => obj.idlType
 
 ///|
-/// idlType が文字列かチェック
+/// Check if idlType is a string
 pub extern "js" fn is_string_type(idl_type : JsValue) -> Bool =
   #| (t) => typeof t === 'string' || (t && typeof t.idlType === 'string')
 
 ///|
-/// idlType から型名を取得
+/// Get type name from idlType
 pub extern "js" fn get_type_name(idl_type : JsValue) -> String =
   #| (t) => typeof t === 'string' ? t : (t && typeof t.idlType === 'string' ? t.idlType : '')
 
 ///|
-/// idlType が union 型かチェック
+/// Check if idlType is a union type
 pub extern "js" fn is_union_type(idl_type : JsValue) -> Bool =
   #| (t) => t && t.union === true
 
 ///|
-/// Union型の内部型を取得
+/// Get inner types from union type
 pub extern "js" fn get_union_types(idl_type : JsValue) -> JsArray =
   #| (t) => (t && t.idlType) || []
 
 ///|
-/// idlType が sequence 型かチェック
+/// Check if idlType is a sequence type
 pub extern "js" fn is_sequence_type(idl_type : JsValue) -> Bool =
   #| (t) => t && t.generic === 'sequence'
 
 ///|
-/// Sequence型の内部型を取得
+/// Get inner type from sequence type
 pub extern "js" fn get_sequence_inner_type(idl_type : JsValue) -> JsValue =
   #| (t) => (t && t.idlType && t.idlType[0]) || null
 
 ///|
-/// idlType が Promise 型かチェック
+/// Check if idlType is a Promise type
 pub extern "js" fn is_promise_type(idl_type : JsValue) -> Bool =
   #| (t) => t && t.generic === 'Promise'
 
 ///|
-/// Promise型の内部型を取得
+/// Get inner type from Promise type
 pub extern "js" fn get_promise_inner_type(idl_type : JsValue) -> JsValue =
   #| (t) => (t && t.idlType && t.idlType[0]) || null
 
 ///|
-/// idlType が record 型かチェック
+/// Check if idlType is a record type
 pub extern "js" fn is_record_type(idl_type : JsValue) -> Bool =
   #| (t) => t && t.generic === 'record'
 
 ///|
-/// idlType が undefined または void かチェック
+/// Check if idlType is undefined or void
 pub extern "js" fn is_void_or_undefined_type(idl_type : JsValue) -> Bool =
   #| (t) => {
   #|   if (!t) return false;
@@ -119,42 +119,42 @@ pub extern "js" fn is_void_or_undefined_type(idl_type : JsValue) -> Bool =
   #| }
 
 ///|
-/// idlType が nullable かチェック
+/// Check if idlType is nullable
 pub extern "js" fn is_nullable_type(idl_type : JsValue) -> Bool =
   #| (t) => t && t.nullable === true
 
 ///|
-/// オブジェクトの readonly プロパティを取得
+/// Get readonly property from object
 pub extern "js" fn is_readonly(obj : JsValue) -> Bool =
   #| (obj) => obj.readonly === true
 
 ///|
-/// maplike/setlike の idlType 配列を取得
+/// Get idlType array from maplike/setlike
 pub extern "js" fn get_maplike_types(obj : JsValue) -> JsArray =
   #| (obj) => obj.idlType || []
 
 ///|
-/// maplike/setlike の idlType 配列の要素を取得
+/// Get element from maplike/setlike idlType array
 pub extern "js" fn get_maplike_type_at(types : JsArray, index : Int) -> JsValue =
   #| (types, index) => types[index] || null
 
 ///|
-/// オブジェクトの optional プロパティを取得
+/// Get optional property from object
 pub extern "js" fn is_optional(obj : JsValue) -> Bool =
   #| (obj) => obj.optional === true
 
 ///|
-/// オブジェクトの arguments プロパティを取得
+/// Get arguments property from object
 pub extern "js" fn get_arguments(obj : JsValue) -> JsArray =
   #| (obj) => obj.arguments || []
 
 ///|
-/// オブジェクトの values プロパティを取得（enum用）
+/// Get values property from object (for enum)
 pub extern "js" fn get_values(obj : JsValue) -> JsArray =
   #| (obj) => obj.values || []
 
 ///|
-/// 配列から文字列を取得
+/// Get string value from array
 pub extern "js" fn get_string_value(arr : JsArray, index : Int) -> String =
   #| (arr, index) => {
   #|   const v = arr[index];
@@ -162,7 +162,7 @@ pub extern "js" fn get_string_value(arr : JsArray, index : Int) -> String =
   #| }
 
 ///|
-/// オブジェクトの inheritance プロパティを取得
+/// Get inheritance property from object
 pub extern "js" fn get_inheritance(obj : JsValue) -> String =
   #| (obj) => {
   #|   if (!obj.inheritance) return '';
@@ -171,7 +171,7 @@ pub extern "js" fn get_inheritance(obj : JsValue) -> String =
   #| }
 
 ///|
-/// default 値を取得
+/// Get default value
 pub extern "js" fn get_default_value(obj : JsValue) -> String =
   #| (obj) => {
   #|   if (!obj.default) return '';
@@ -181,17 +181,17 @@ pub extern "js" fn get_default_value(obj : JsValue) -> String =
   #| }
 
 ///|
-/// required プロパティを取得
+/// Get required property
 pub extern "js" fn is_required(obj : JsValue) -> Bool =
   #| (obj) => obj.required === true
 
 ///|
-/// special プロパティを取得
+/// Get special property
 pub extern "js" fn get_special(obj : JsValue) -> String =
   #| (obj) => obj.special || ''
 
 ///|
-/// const の value を取得
+/// Get const value
 pub extern "js" fn get_const_value(obj : JsValue) -> String =
   #| (obj) => {
   #|   if (!obj.value) return '';
@@ -199,27 +199,27 @@ pub extern "js" fn get_const_value(obj : JsValue) -> String =
   #| }
 
 ///|
-/// partial かどうかをチェック
+/// Check if partial
 pub extern "js" fn is_partial(obj : JsValue) -> Bool =
   #| (obj) => obj.partial === true
 
 ///|
-/// target を取得 (partial用)
+/// Get target (for partial)
 pub extern "js" fn get_target(obj : JsValue) -> String =
   #| (obj) => obj.target || ''
 
 ///|
-/// includes を取得 (includes statement用)
+/// Get includes (for includes statement)
 pub extern "js" fn get_includes(obj : JsValue) -> String =
   #| (obj) => obj.includes || ''
 
 ///|
-/// extAttrs を取得
+/// Get extAttrs
 pub extern "js" fn get_ext_attrs(obj : JsValue) -> JsArray =
   #| (obj) => obj.extAttrs || []
 
 ///|
-/// extAttr の rhs を取得
+/// Get rhs from extAttr
 pub extern "js" fn get_ext_attr_rhs(obj : JsValue) -> String =
   #| (obj) => {
   #|   if (!obj.rhs) return '';
@@ -227,7 +227,7 @@ pub extern "js" fn get_ext_attr_rhs(obj : JsValue) -> String =
   #| }
 
 ///|
-/// WebIDL の idlType を IdlType に変換
+/// Convert WebIDL idlType to IdlType
 fn convert_idl_type(js_type : JsValue) -> IdlType {
   // Check for complex types first
   if is_union_type(js_type) {
@@ -253,22 +253,22 @@ fn convert_idl_type(js_type : JsValue) -> IdlType {
     // Extract Promise inner type
     let inner_js_type = get_promise_inner_type(js_type)
 
-    // undefined/void の場合は Promise[Unit]
+    // For undefined/void, return Promise[Unit]
     if is_void_or_undefined_type(inner_js_type) {
       return Promise(Void)
     }
 
-    // Union型の場合は再帰的に処理
+    // For union types, process recursively
     if is_union_type(inner_js_type) {
       return Promise(convert_idl_type(inner_js_type))
     }
 
-    // record<K, V> 型は JsValue として扱う（MoonBit で表現できない）
+    // record<K, V> type is treated as JsValue (cannot be expressed in MoonBit)
     if is_record_type(inner_js_type) {
       return Promise(Any)
     }
 
-    // その他の型は再帰的に処理
+    // Process other types recursively
     let inner_type = convert_idl_type(inner_js_type)
     return Promise(inner_type)
   }
@@ -285,7 +285,7 @@ fn convert_idl_type(js_type : JsValue) -> IdlType {
 }
 
 ///|
-/// 単純な型名から IdlType に変換
+/// Convert simple type name to IdlType
 fn convert_simple_type(type_name : String) -> IdlType {
   match type_name {
     "boolean" => Primitive("boolean")
@@ -303,7 +303,7 @@ fn convert_simple_type(type_name : String) -> IdlType {
 }
 
 ///|
-/// Interface メンバーを変換
+/// Convert interface member
 fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
   let mem_type = get_type(js_mem)
   match mem_type {
@@ -415,7 +415,7 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
 }
 
 ///|
-/// Dictionary メンバーを変換
+/// Convert dictionary member
 fn convert_dictionary_member(js_member : JsValue) -> DictionaryMember {
   let dv = get_default_value(js_member)
   {
@@ -431,7 +431,7 @@ fn convert_dictionary_member(js_member : JsValue) -> DictionaryMember {
 }
 
 ///|
-/// パース結果を Definition の配列に変換
+/// Convert parse result to array of Definition
 pub fn convert_to_definitions(result : JsValue) -> Array[Definition] {
   let data = get_parse_data(result)
   let len = js_array_length(data)
@@ -491,20 +491,20 @@ pub fn convert_to_definitions(result : JsValue) -> Array[Definition] {
         definitions.push(InterfaceMixin(mixin_def))
       }
       "callback interface" => {
-        // Callback interface から operation を抽出
+        // Extract operation from callback interface
         // callback interface EventListener { void handleEvent(Event event); }
         let members_array = get_members(item)
         let members_len = js_array_length(members_array)
         let mut return_type : IdlType? = None
         let arguments : Array[Argument] = []
-        // 最初の operation を探す
+        // Find the first operation
         let mut j = 0
         while j < members_len {
           let js_mem : JsValue = js_array_get(members_array, j)
           if get_type(js_mem) == "operation" {
-            // 戻り値の型を取得
+            // Get return type
             return_type = Some(convert_idl_type(get_idl_type(js_mem)))
-            // 引数を取得
+            // Get arguments
             let args_array = get_arguments(js_mem)
             let args_len = js_array_length(args_array)
             let mut k = 0

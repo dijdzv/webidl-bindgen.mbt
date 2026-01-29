@@ -1,7 +1,7 @@
-// Enum マップ操作
+// Enum map operations
 
 ///|
-/// enum マップから値リストを取得
+/// Get value list from enum map
 pub fn lookup_enum(
   enum_map : Array[(String, Array[String])],
   name : String,
@@ -17,8 +17,8 @@ pub fn lookup_enum(
 }
 
 ///|
-/// enum 配列ルックアップ式を生成
-/// 例: ['value1', 'value2'][index_expr]
+/// Generate enum array lookup expression
+/// Example: ['value1', 'value2'][index_expr]
 pub fn gen_enum_array_lookup(
   values : Array[String],
   index_expr : String,
@@ -45,8 +45,8 @@ pub fn gen_enum_array_lookup(
 }
 
 ///|
-/// nullable enum 配列ルックアップ式を生成（null チェック付き）
-/// 例: (var_name != null ? ['value1', 'value2'][var_name] : null)
+/// Generate nullable enum array lookup expression (with null check)
+/// Example: (var_name != null ? ['value1', 'value2'][var_name] : null)
 pub fn gen_nullable_enum_array_lookup(
   values : Array[String],
   var_name : String,
