@@ -7,8 +7,8 @@
   ];
 
   enterShell = ''
-    # Add moon to PATH
-    export PATH="$HOME/.moon/bin:$PATH"
+    # Add project bin (node wrapper) and moon to PATH
+    export PATH="$PWD/bin:$HOME/.moon/bin:$PATH"
 
     # Install MoonBit toolchain if not present
     if ! command -v moon &> /dev/null; then
