@@ -1194,11 +1194,12 @@ fn format_const_value(value : String, moonbit_type : String) -> String {
 }
 
 ///|
-/// Generate extern js fn from Constructor
-pub fn gen_constructor(
+/// Generate extern js fn from Constructor (with suffix for overloads)
+pub fn gen_constructor_with_suffix(
   interface_name : String,
   ctor : ConstructorDef,
   enum_map : Array[(String, Array[String])],
+  suffix : String,
 ) -> String {
   let return_type = interface_name
 
@@ -1246,7 +1247,9 @@ pub fn gen_constructor(
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
   result.write_string(interface_name)
-  result.write_string("::new(")
+  result.write_string("::new")
+  result.write_string(suffix)
+  result.write_string("(")
   result.write_string(args.to_string())
   result.write_string(") -> ")
   result.write_string(return_type)
@@ -1266,6 +1269,125 @@ pub fn gen_constructor(
   result.write_string("(")
   result.write_string(js_call_args.to_string())
   result.write_string(")\n")
+  result.to_string()
+}
+
+///|
+/// Generate extern js fn from Constructor (backward compatible wrapper)
+pub fn gen_constructor(
+  interface_name : String,
+  ctor : ConstructorDef,
+  enum_map : Array[(String, Array[String])],
+) -> String {
+  gen_constructor_with_suffix(interface_name, ctor, enum_map, "")
+}
+
+///|
+/// Collect all constructors from interface members
+fn collect_constructors(members : Array[InterfaceMember]) -> Array[ConstructorDef] {
+  members
+  .iter()
+  .filter_map(fn(mem) {
+    match mem {
+      Constructor(ctor) => Some(ctor)
+      _ => None
+    }
+  })
+  .collect()
+}
+
+///|
+/// Sort constructors by argument count (ascending)
+fn sort_constructors_by_arg_count(
+  constructors : Array[ConstructorDef],
+) -> Array[ConstructorDef] {
+  // Simple bubble sort by required argument count
+  let result = constructors.copy()
+  let len = result.length()
+  for i = 0; i < len; i = i + 1 {
+    for j = i + 1; j < len; j = j + 1 {
+      let first_optional_i = find_first_optional_arg_index(result[i].arguments)
+      let required_i = if first_optional_i < 0 {
+        result[i].arguments.length()
+      } else {
+        first_optional_i
+      }
+      let first_optional_j = find_first_optional_arg_index(result[j].arguments)
+      let required_j = if first_optional_j < 0 {
+        result[j].arguments.length()
+      } else {
+        first_optional_j
+      }
+      if required_i > required_j {
+        let temp = result[i]
+        result[i] = result[j]
+        result[j] = temp
+      }
+    }
+  }
+  result
+}
+
+///|
+/// Generate constructor overload suffix based on arguments
+/// Uses same naming conventions as operation overloads
+fn gen_constructor_overload_suffix(
+  base_ctor : ConstructorDef,
+  current_ctor : ConstructorDef,
+  all_ctors : Array[ConstructorDef],
+) -> String {
+  let base_len = base_ctor.arguments.length()
+  let current_len = current_ctor.arguments.length()
+
+  // Same argument count but different types - use type-based suffix
+  let same_count_ctors = all_ctors
+    .iter()
+    .filter(fn(c) { c.arguments.length() == current_len })
+    .collect()
+
+  if same_count_ctors.length() > 1 {
+    // Multiple constructors with same arg count - use first argument type for distinction
+    if current_len > 0 {
+      let first_arg = current_ctor.arguments[0]
+      let type_name = arg_type_to_snake_case(first_arg.idl_type)
+      return "_with_" + type_name
+    }
+  }
+
+  // Different argument count - use gen_overload_suffix logic
+  if base_len == current_len {
+    return ""
+  }
+
+  // Generate suffix from additional arguments
+  gen_overload_suffix(base_ctor.arguments, current_ctor.arguments)
+}
+
+///|
+/// Generate all constructor overloads for an interface
+pub fn gen_all_constructors(
+  interface_name : String,
+  members : Array[InterfaceMember],
+  enum_map : Array[(String, Array[String])],
+) -> String {
+  let constructors = collect_constructors(members)
+  if constructors.length() == 0 {
+    return ""
+  }
+
+  // Sort by argument count
+  let sorted = sort_constructors_by_arg_count(constructors)
+  let base_ctor = sorted[0]
+
+  let result = StringBuilder::new()
+  for i = 0; i < sorted.length(); i = i + 1 {
+    let ctor = sorted[i]
+    let suffix = gen_constructor_overload_suffix(base_ctor, ctor, sorted)
+    result.write_string(
+      gen_constructor_with_suffix(interface_name, ctor, enum_map, suffix),
+    )
+    result.write_string("\n")
+  }
   result.to_string()
 }
 
@@ -1610,12 +1732,11 @@ pub fn gen_interface_binding(
           }
         }
       }
-      Constructor(ctor) =>
-        // Generate only first constructor (ignore overloads)
+      Constructor(_) =>
+        // Generate all constructor overloads (handled once via gen_all_constructors)
         if not(has_constructor) {
           has_constructor = true
-          result.write_string(gen_constructor(iface.name, ctor, enum_map))
-          result.write_string("\n")
+          result.write_string(gen_all_constructors(iface.name, iface.members, enum_map))
         }
       Const(const_def) => {
         let interface_prefix = to_snake_case(iface.name)
