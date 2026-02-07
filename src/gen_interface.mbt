@@ -221,9 +221,9 @@ pub fn gen_static_operation_with_suffix(
       result.write_string(op.name)
       result.write_string("(")
       result.write_string(js_call_args.to_string())
-      result.write_string(
-        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
-      )
+      result.write_string("); return ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string("; }\n")
     }
     Promise(Nullable(_)) => {
       result.write_string(") => ")
@@ -232,9 +232,9 @@ pub fn gen_static_operation_with_suffix(
       result.write_string(op.name)
       result.write_string("(")
       result.write_string(js_call_args.to_string())
-      result.write_string(
-        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
-      )
+      result.write_string(").then(v => ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string(")\n")
     }
     _ => {
       result.write_string(") => ")
@@ -297,9 +297,9 @@ pub fn gen_special_operation(
         Nullable(_) => {
           result.write_string(") => { const v = self[")
           result.write_string(arg_name)
-          result.write_string(
-            "]; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
-          )
+          result.write_string("]; return ")
+          result.write_string(js_null_to_option("v"))
+          result.write_string("; }\n")
         }
         _ => {
           result.write_string(") => self[")
@@ -461,18 +461,18 @@ pub fn gen_operation(
       result.write_string(op.name)
       result.write_string("(")
       result.write_string(js_call_args.to_string())
-      result.write_string(
-        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
-      )
+      result.write_string("); return ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string("; }\n")
     }
     Promise(Nullable(_)) => {
       result.write_string(") => self.")
       result.write_string(op.name)
       result.write_string("(")
       result.write_string(js_call_args.to_string())
-      result.write_string(
-        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
-      )
+      result.write_string(").then(v => ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string(")\n")
     }
     _ => {
       result.write_string(") => self.")
@@ -792,18 +792,18 @@ pub fn gen_operation_with_arg_count(
       result.write_string(op.name)
       result.write_string("(")
       result.write_string(js_call_args.to_string())
-      result.write_string(
-        "); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
-      )
+      result.write_string("); return ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string("; }\n")
     }
     Promise(Nullable(_)) => {
       result.write_string(") => self.")
       result.write_string(op.name)
       result.write_string("(")
       result.write_string(js_call_args.to_string())
-      result.write_string(
-        ").then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
-      )
+      result.write_string(").then(v => ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string(")\n")
     }
     _ => {
       result.write_string(") => self.")
@@ -1050,16 +1050,16 @@ pub fn gen_attribute_getter(
     Nullable(_) => {
       result.write_string("  #| (self) => { const v = self.")
       result.write_string(attr.name)
-      result.write_string(
-        "; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n",
-      )
+      result.write_string("; return ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string("; }\n")
     }
     Promise(Nullable(_)) => {
       result.write_string("  #| (self) => self.")
       result.write_string(attr.name)
-      result.write_string(
-        ".then(v => v == null ? { $tag: 0 } : { $tag: 1, _0: v })\n",
-      )
+      result.write_string(".then(v => ")
+      result.write_string(js_null_to_option("v"))
+      result.write_string(")\n")
     }
     _ => {
       result.write_string("  #| (self) => self.")
@@ -1461,7 +1461,11 @@ fn gen_downcast_methods(
         result.write_string("? =\n")
         result.write_string("  #| (self) => (self instanceof ")
         result.write_string(child_name)
-        result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+        result.write_string(") ? ")
+        result.write_string(js_some("self"))
+        result.write_string(" : ")
+        result.write_string(js_none())
+        result.write_string("\n\n")
       })
     None => ()
   }
@@ -1557,7 +1561,11 @@ pub fn gen_interface_binding(
   result.write_string("? =\n")
   result.write_string("  #| (v) => (v instanceof ")
   result.write_string(iface.name)
-  result.write_string(") ? { $tag: 1, _0: v } : { $tag: 0 }\n\n")
+  result.write_string(") ? ")
+  result.write_string(js_some("v"))
+  result.write_string(" : ")
+  result.write_string(js_none())
+  result.write_string("\n\n")
 
   // JsValue::as_xxx: checked cast from JsValue (returns Option)
   result.write_string("/// Safely cast JsValue to ")
@@ -1570,7 +1578,11 @@ pub fn gen_interface_binding(
   result.write_string("? =\n")
   result.write_string("  #| (self) => (self instanceof ")
   result.write_string(iface.name)
-  result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+  result.write_string(") ? ")
+  result.write_string(js_some("self"))
+  result.write_string(" : ")
+  result.write_string(js_none())
+  result.write_string("\n\n")
 
   // JsValue::to_xxx: unchecked cast from JsValue
   result.write_string("/// Cast JsValue to ")
@@ -1786,9 +1798,9 @@ fn gen_maplike_methods(
     result.write_string(") -> ")
     result.write_string(value_type)
     result.write_string("? =\n")
-    result.write_string(
-      "  #| (self, key) => { const v = self.get(key); return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; }\n\n",
-    )
+    result.write_string("  #| (self, key) => { const v = self.get(key); return ")
+    result.write_string(js_null_to_option("v"))
+    result.write_string("; }\n\n")
   }
 
   // has(key) -> Bool

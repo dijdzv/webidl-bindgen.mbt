@@ -1,6 +1,44 @@
 // Dictionary/Enum binding generation logic
 
 ///|
+/// Check if a dictionary member has a safe default value
+/// Safe defaults: Primitive, String, Nullable, Void, Sequence, or has explicit default_value
+fn has_safe_default(mem : DictionaryMember) -> Bool {
+  match mem.default_value {
+    Some(_) => true
+    None =>
+      match mem.idl_type {
+        Primitive(_) | String | Nullable(_) | Void | Sequence(_) => true
+        Named(_) | Any | Promise(_) | Union(_) => false
+      }
+  }
+}
+
+///|
+/// Get safe default value for a dictionary member
+fn get_safe_default_value(mem : DictionaryMember) -> String {
+  match mem.default_value {
+    Some(v) => v
+    None =>
+      match mem.idl_type {
+        Primitive("boolean") => "false"
+        Primitive(_) => "0"
+        String => "\"\""
+        Nullable(_) => "None"
+        Void => "()"
+        Sequence(_) => "[]"
+        _ => "panic()" // Should not be reached if has_safe_default is checked first
+      }
+  }
+}
+
+///|
+/// Check if dictionary has required fields without safe defaults
+fn has_required_fields_without_safe_default(dict : DictionaryDef) -> Bool {
+  dict.members.iter().any(fn(mem) { mem.required && not(has_safe_default(mem)) })
+}
+
+///|
 /// Generate MoonBit struct from Dictionary
 pub fn gen_dictionary(
   dict : DictionaryDef,
@@ -41,56 +79,86 @@ pub fn gen_dictionary(
     })
   result = result + "}\n\n"
 
-  // Generate default constructor
-  result = result + "/// Create a new "
-  result = result + dict.name
-  result = result + " with default values\n"
-  result = result + "pub fn "
-  result = result + dict.name
-  result = result + "::default() -> "
-  result = result + dict.name
-  result = result + " {\n"
-  // Use TypeName::{} syntax to disambiguate from map literal
-  result = result + "  "
-  result = result + dict.name
-  result = result + "::{\n"
-  result = dict.members
-    .iter()
-    .fold(init=result, fn(acc, mem) {
-      let value = if not(mem.required) {
-        // For Nullable[T] type, use Nullable::Undefined
-        let moonbit_type = mem.idl_type.to_moonbit_simple()
-        if ends_with_question(moonbit_type) {
-          "Nullable::Undefined"
-        } else {
-          "None"
+  // Determine if dictionary has required fields without safe defaults
+  let has_required = has_required_fields_without_safe_default(dict)
+  if has_required {
+    // Generate new() constructor with required fields as labeled arguments
+    result = result + "/// Create a new "
+    result = result + dict.name
+    result = result + "\n"
+    result = result + "pub fn "
+    result = result + dict.name
+    result = result + "::new("
+    // Add required fields (without safe defaults) as labeled arguments
+    let mut first_arg = true
+    dict.members.iter().each(fn(mem) {
+      if mem.required && not(has_safe_default(mem)) {
+        if not(first_arg) {
+          result = result + ", "
         }
-      } else {
-        // Use default value if available
-        match mem.default_value {
-          Some(v) => v
-          None =>
-            // Default value based on type
-            // Note: Since Named types don't have appropriate default values,
-            // this dictionary skips default generation for required fields
-            match mem.idl_type {
-              Primitive("boolean") => "false"
-              Primitive(_) => "0"
-              String => "\"\""
-              Nullable(_) => "None"
-              Void => "()"
-              Sequence(_) => "[]" // empty array
-              Named(_) | Any | Promise(_) | Union(_) =>
-                // Cannot handle in default constructor,
-                // needs initialization via @json.from_json etc.
-                "panic()"
-            }
-        }
+        result = result + "~" + field_name_to_moonbit(mem.name) + " : " + mem.idl_type.to_moonbit_simple()
+        first_arg = false
       }
-      acc + "    " + field_name_to_moonbit(mem.name) + ": " + value + ",\n"
     })
-  result = result + "  }\n"
-  result = result + "}\n\n"
+    result = result + ") -> "
+    result = result + dict.name
+    result = result + " {\n"
+    result = result + "  "
+    result = result + dict.name
+    result = result + "::{\n"
+    result = dict.members
+      .iter()
+      .fold(init=result, fn(acc, mem) {
+        let value = if not(mem.required) {
+          // For Nullable[T] type, use Nullable::Undefined
+          let moonbit_type = mem.idl_type.to_moonbit_simple()
+          if ends_with_question(moonbit_type) {
+            "Nullable::Undefined"
+          } else {
+            "None"
+          }
+        } else if has_safe_default(mem) {
+          // Required field with safe default
+          get_safe_default_value(mem)
+        } else {
+          // Required field passed as argument
+          field_name_to_moonbit(mem.name)
+        }
+        acc + "    " + field_name_to_moonbit(mem.name) + ": " + value + ",\n"
+      })
+    result = result + "  }\n"
+    result = result + "}\n\n"
+  } else {
+    // All fields have safe defaults, generate default()
+    result = result + "/// Create a new "
+    result = result + dict.name
+    result = result + " with default values\n"
+    result = result + "pub fn "
+    result = result + dict.name
+    result = result + "::default() -> "
+    result = result + dict.name
+    result = result + " {\n"
+    result = result + "  "
+    result = result + dict.name
+    result = result + "::{\n"
+    result = dict.members
+      .iter()
+      .fold(init=result, fn(acc, mem) {
+        let value = if not(mem.required) {
+          let moonbit_type = mem.idl_type.to_moonbit_simple()
+          if ends_with_question(moonbit_type) {
+            "Nullable::Undefined"
+          } else {
+            "None"
+          }
+        } else {
+          get_safe_default_value(mem)
+        }
+        acc + "    " + field_name_to_moonbit(mem.name) + ": " + value + ",\n"
+      })
+    result = result + "  }\n"
+    result = result + "}\n\n"
+  }
 
   // Conversion function to JsValue
   result = result + "/// Convert to JsValue\n"
@@ -118,8 +186,16 @@ pub fn gen_dictionary(
           enum_map,
           union_set,
         )
+      } else if not(mem.required) {
+        // Optional field (Option[T]) - explicit conversion
+        gen_optional_field_value_expr(
+          mem.idl_type,
+          moonbit_name,
+          enum_map,
+          union_set,
+        )
       } else {
-        // Normal field (including enum conversion)
+        // Required field (including enum conversion)
         gen_field_value_expr(mem.idl_type, moonbit_name, enum_map, union_set)
       }
       let comma = if idx < members_len - 1 { "," } else { "" }
@@ -171,6 +247,42 @@ fn gen_field_value_expr(
 }
 
 ///|
+/// Generate JS expression for optional (Option[T]) field
+/// Explicitly converts Option to JS: Some → value, None → undefined
+fn gen_optional_field_value_expr(
+  idl_type : IdlType,
+  field_name : String,
+  enum_map : Array[(String, Array[String])],
+  union_set : Array[String],
+) -> String {
+  // Determine the payload expression for the inner value
+  let payload = match idl_type {
+    Named(type_name) =>
+      match lookup_enum(enum_map, type_name) {
+        Some(values) => gen_enum_array_lookup(values, "v._0")
+        None =>
+          if is_in_union_set(union_set, type_name) {
+            "v._0.to_js_value()"
+          } else {
+            "v._0"
+          }
+      }
+    Nullable(Named(type_name)) =>
+      match lookup_enum(enum_map, type_name) {
+        Some(values) => gen_nullable_enum_array_lookup(values, "v._0")
+        None =>
+          if is_in_union_set(union_set, type_name) {
+            "(v._0 != null ? v._0.to_js_value() : null)"
+          } else {
+            "v._0"
+          }
+      }
+    _ => "v._0"
+  }
+  js_option_to_js(field_name, payload)
+}
+
+///|
 /// Check if type is in Union type set
 fn is_in_union_set(union_set : Array[String], type_name : String) -> Bool {
   union_set.contains(type_name)
@@ -199,9 +311,9 @@ fn gen_nullable_field_expr(
   let result = StringBuilder::new()
   result.write_string("((() => { const v = self.")
   result.write_string(field_name)
-  result.write_string(
-    "; if (v.$tag === 0) return undefined; if (v.$tag === 1) return null; return ",
-  )
+  result.write_string("; ")
+  result.write_string(js_nullable_check("v"))
+  result.write_string("return ")
 
   // Conversion needed if inner type is enum or Union
   match inner_type {
@@ -222,17 +334,20 @@ fn gen_nullable_field_expr(
               false
             }),
           )
-          result.write_string("][v.$0]")
+          result.write_string("][")
+          result.write_string(js_nullable_payload("v"))
+          result.write_string("]")
         }
         None =>
           // For Union types, call .to_js_value()
           if is_in_union_set(union_set, type_name) {
-            result.write_string("v.$0.to_js_value()")
+            result.write_string(js_nullable_payload("v"))
+            result.write_string(".to_js_value()")
           } else {
-            result.write_string("v.$0")
+            result.write_string(js_nullable_payload("v"))
           }
       }
-    _ => result.write_string("v.$0")
+    _ => result.write_string(js_nullable_payload("v"))
   }
   result.write_string("; })())")
   result.to_string()
@@ -255,9 +370,8 @@ fn gen_nullable_type_field_expr(
   let result = StringBuilder::new()
   result.write_string("((() => { const v = self.")
   result.write_string(field_name)
-  result.write_string(
-    "; if (v.$tag === 0) return undefined; if (v.$tag === 1) return null; ",
-  )
+  result.write_string("; ")
+  result.write_string(js_nullable_check("v"))
 
   // Conversion needed if inner type is enum or Union
   match inner_type {
@@ -278,17 +392,27 @@ fn gen_nullable_type_field_expr(
               false
             }),
           )
-          result.write_string("][v.$0];")
+          result.write_string("][")
+          result.write_string(js_nullable_payload("v"))
+          result.write_string("];")
         }
         None =>
           // For Union types, call .to_js_value()
           if is_in_union_set(union_set, type_name) {
-            result.write_string("return v.$0.to_js_value();")
+            result.write_string("return ")
+            result.write_string(js_nullable_payload("v"))
+            result.write_string(".to_js_value();")
           } else {
-            result.write_string("return v.$0;")
+            result.write_string("return ")
+            result.write_string(js_nullable_payload("v"))
+            result.write_string(";")
           }
       }
-    _ => result.write_string("return v.$0;")
+    _ => {
+      result.write_string("return ")
+      result.write_string(js_nullable_payload("v"))
+      result.write_string(";")
+    }
   }
   result.write_string(" })())")
   result.to_string()
@@ -764,7 +888,11 @@ fn gen_union_as_cast(
   result.write_string(moonbit_type)
   result.write_string("? =\n  #| (self) => (")
   result.write_string(js_check)
-  result.write_string(") ? { $tag: 1, _0: self } : { $tag: 0 }\n\n")
+  result.write_string(") ? ")
+  result.write_string(js_some("self"))
+  result.write_string(" : ")
+  result.write_string(js_none())
+  result.write_string("\n\n")
   result.to_string()
 }
 

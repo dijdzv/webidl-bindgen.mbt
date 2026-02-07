@@ -945,9 +945,11 @@ pub fn gen_shared_types_with_externals(
     result.write_string("// Global accessors\n")
     result.write_string("/// Get the global window object\n")
     result.write_string("pub extern \"js\" fn window() -> Window? =\n")
-    result.write_string(
-      "  #| () => (typeof window !== 'undefined') ? { $tag: 1, _0: window } : { $tag: 0 }\n\n",
-    )
+    result.write_string("  #| () => (typeof window !== 'undefined') ? ")
+    result.write_string(js_some("window"))
+    result.write_string(" : ")
+    result.write_string(js_none())
+    result.write_string("\n\n")
   }
   result.to_string()
 }

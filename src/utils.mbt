@@ -165,6 +165,62 @@ pub fn escape_reserved(name : String) -> String {
   }
 }
 
+// --- Option (built-in type) JS representation helpers ---
+
+///|
+/// Build JS expression for Option::Some
+/// Example: js_some("v") => "{ $tag: 1, _0: v }"
+pub fn js_some(value_expr : String) -> String {
+  "{ $tag: 1, _0: " + value_expr + " }"
+}
+
+///|
+/// Build JS expression for Option::None
+/// Example: js_none() => "{ $tag: 0 }"
+pub fn js_none() -> String {
+  "{ $tag: 0 }"
+}
+
+///|
+/// Build JS expression to convert nullable JS value to Option
+/// Example: js_null_to_option("v") => "v == null ? { $tag: 0 } : { $tag: 1, _0: v }"
+pub fn js_null_to_option(value_expr : String) -> String {
+  value_expr + " == null ? " + js_none() + " : " + js_some(value_expr)
+}
+
+///|
+/// Build JS IIFE to convert Option field to JS value (Some → value, None → undefined)
+/// Example: js_option_to_js("field", "v._0") =>
+///   "((() => { const v = self.field; if (v.$tag !== 1) return undefined; return v._0; })())"
+pub fn js_option_to_js(field_name : String, payload_expr : String) -> String {
+  "((() => { const v = self." +
+  field_name +
+  "; if (v.$tag !== 1) return undefined; return " +
+  payload_expr +
+  "; })())"
+}
+
+// --- Nullable (user-defined enum) JS representation helpers ---
+
+///|
+/// Build JS check part for Nullable enum (Undefined=$tag:0, Null=$tag:1, Value=$tag:2)
+/// Example: js_nullable_check("v") =>
+///   "if (v.$tag === 0) return undefined; if (v.$tag === 1) return null; "
+pub fn js_nullable_check(var_name : String) -> String {
+  "if (" +
+  var_name +
+  ".$tag === 0) return undefined; if (" +
+  var_name +
+  ".$tag === 1) return null; "
+}
+
+///|
+/// Get JS payload expression from Nullable Value variant
+/// Example: js_nullable_payload("v") => "v.$0"
+pub fn js_nullable_payload(var_name : String) -> String {
+  var_name + ".$0"
+}
+
 ///|
 /// Convert WebIDL primitive type to MoonBit type
 /// Unknown primitives print a warning and return "JsValue"
