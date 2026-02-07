@@ -1139,7 +1139,27 @@ fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
   result.write_string(cb.name)
   result.write_string(" =\n")
 
-  // JS implementation (MoonBit functions can be used directly as JS functions)
-  result.write_string("  #| (handler) => handler\n\n")
+  // JS implementation: wrap MoonBit closure in a proper JS function
+  // MoonBit closures don't have Function.prototype.call/apply,
+  // which some DOM APIs (e.g., addEventListener in happy-dom) require.
+  result.write_string("  #| (handler) => (")
+  // Generate JS parameter names (a0, a1, ...)
+  let arg_count = cb.arguments.length()
+  for i = 0; i < arg_count; i = i + 1 {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string("a")
+    result.write_string(i.to_string())
+  }
+  result.write_string(") => handler(")
+  for i = 0; i < arg_count; i = i + 1 {
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string("a")
+    result.write_string(i.to_string())
+  }
+  result.write_string(")\n\n")
   result.to_string()
 }

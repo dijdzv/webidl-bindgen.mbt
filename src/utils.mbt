@@ -168,24 +168,28 @@ pub fn escape_reserved(name : String) -> String {
 // --- Option (built-in type) JS representation helpers ---
 
 ///|
-/// Build JS expression for Option::Some
-/// Example: js_some("v") => "{ $tag: 1, _0: v }"
+/// Build JS expression for Option::Some in extern "js" return context
+/// MoonBit auto-wraps non-null values as Some, so just return the raw value
+/// Example: js_some("v") => "v"
 pub fn js_some(value_expr : String) -> String {
-  "{ $tag: 1, _0: " + value_expr + " }"
+  value_expr
 }
 
 ///|
-/// Build JS expression for Option::None
-/// Example: js_none() => "{ $tag: 0 }"
+/// Build JS expression for Option::None in extern "js" return context
+/// MoonBit auto-wraps null as None, so just return null
+/// Example: js_none() => "null"
 pub fn js_none() -> String {
-  "{ $tag: 0 }"
+  "null"
 }
 
 ///|
 /// Build JS expression to convert nullable JS value to Option
-/// Example: js_null_to_option("v") => "v == null ? { $tag: 0 } : { $tag: 1, _0: v }"
+/// MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
+/// So no conversion is needed - just return the raw value
+/// Example: js_null_to_option("v") => "v"
 pub fn js_null_to_option(value_expr : String) -> String {
-  value_expr + " == null ? " + js_none() + " : " + js_some(value_expr)
+  value_expr
 }
 
 ///|

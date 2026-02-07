@@ -35,7 +35,9 @@ fn get_safe_default_value(mem : DictionaryMember) -> String {
 ///|
 /// Check if dictionary has required fields without safe defaults
 fn has_required_fields_without_safe_default(dict : DictionaryDef) -> Bool {
-  dict.members.iter().any(fn(mem) { mem.required && not(has_safe_default(mem)) })
+  dict.members
+  .iter()
+  .any(fn(mem) { mem.required && not(has_safe_default(mem)) })
 }
 
 ///|
@@ -55,8 +57,8 @@ pub fn gen_dictionary(
   result = result + dict.name
   result = result + " dictionary\n"
 
-  // struct definition
-  result = result + "pub struct "
+  // struct definition (pub(all) allows external construction and field access)
+  result = result + "pub(all) struct "
   result = result + dict.name
   result = result + " {\n"
   result = dict.members
@@ -91,12 +93,17 @@ pub fn gen_dictionary(
     result = result + "::new("
     // Add required fields (without safe defaults) as labeled arguments
     let mut first_arg = true
-    dict.members.iter().each(fn(mem) {
+    dict.members
+    .iter()
+    .each(fn(mem) {
       if mem.required && not(has_safe_default(mem)) {
         if not(first_arg) {
           result = result + ", "
         }
-        result = result + "~" + field_name_to_moonbit(mem.name) + " : " + mem.idl_type.to_moonbit_simple()
+        result = result +
+          field_name_to_moonbit(mem.name) +
+          "~ : " +
+          mem.idl_type.to_moonbit_simple()
         first_arg = false
       }
     })

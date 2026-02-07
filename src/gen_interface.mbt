@@ -211,41 +211,106 @@ pub fn gen_static_operation_with_suffix(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
-  // Add null check for Nullable types
-  // For Promise(Nullable(_)), convert with .then()
-  match op.return_type {
-    Nullable(_) => {
-      result.write_string(") => { const v = ")
-      result.write_string(interface_name)
-      result.write_string(".")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string("); return ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string("; }\n")
+  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
+  // So no special handling is needed for Nullable or Promise(Nullable) return types
+  result.write_string(") => ")
+  result.write_string(interface_name)
+  result.write_string(".")
+  result.write_string(op.name)
+  result.write_string("(")
+  result.write_string(js_call_args.to_string())
+  result.write_string(")\n")
+  result.to_string()
+}
+
+///|
+/// Generate Static Operation with specified argument count
+/// fn_suffix: Suffix to add to function name (empty string for none)
+pub fn gen_static_operation_with_arg_count(
+  interface_name : String,
+  op : OperationDef,
+  enum_map : Array[(String, Array[String])],
+  arg_count : Int,
+  fn_suffix : String,
+) -> String {
+  if op.name.is_empty() {
+    return ""
+  }
+  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let fn_name = if fn_suffix == "" {
+    base_fn_name
+  } else {
+    base_fn_name + fn_suffix
+  }
+  let return_type = idl_type_to_moonbit(op.return_type)
+
+  // Generate argument list (without self, up to arg_count)
+  let args = StringBuilder::new()
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = op.arguments[i]
+    if i > 0 {
+      args.write_string(", ")
     }
-    Promise(Nullable(_)) => {
-      result.write_string(") => ")
-      result.write_string(interface_name)
-      result.write_string(".")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string(").then(v => ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string(")\n")
+    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(" : ")
+    args.write_string(idl_type_to_moonbit(arg.idl_type))
+  }
+
+  // JS call arguments (convert enum to string via array lookup)
+  let js_call_args = StringBuilder::new()
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = op.arguments[i]
+    if i > 0 {
+      js_call_args.write_string(", ")
     }
-    _ => {
-      result.write_string(") => ")
-      result.write_string(interface_name)
-      result.write_string(".")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string(")\n")
+    let arg_name = escape_reserved(to_snake_case(arg.name))
+    match arg.idl_type {
+      Named(type_name) =>
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
+          None => js_call_args.write_string(arg_name)
+        }
+      Nullable(Named(type_name)) =>
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
+          None => js_call_args.write_string(arg_name)
+        }
+      _ => js_call_args.write_string(arg_name)
     }
   }
+
+  // JS side argument list (variable names only)
+  let js_params = StringBuilder::new()
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = op.arguments[i]
+    if i > 0 {
+      js_params.write_string(", ")
+    }
+    js_params.write_string(escape_reserved(to_snake_case(arg.name)))
+  }
+  let result = StringBuilder::new()
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(interface_name)
+  result.write_string("::")
+  result.write_string(fn_name)
+  result.write_string("(")
+  result.write_string(args.to_string())
+  result.write_string(") -> ")
+  result.write_string(return_type)
+  result.write_string(" =\n")
+  result.write_string("  #| (")
+  result.write_string(js_params.to_string())
+  result.write_string(") => ")
+  result.write_string(interface_name)
+  result.write_string(".")
+  result.write_string(op.name)
+  result.write_string("(")
+  result.write_string(js_call_args.to_string())
+  result.write_string(")\n")
   result.to_string()
 }
 
@@ -292,21 +357,10 @@ pub fn gen_special_operation(
       result.write_string(" =\n")
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
-      // Add null check for Nullable types
-      match op.return_type {
-        Nullable(_) => {
-          result.write_string(") => { const v = self[")
-          result.write_string(arg_name)
-          result.write_string("]; return ")
-          result.write_string(js_null_to_option("v"))
-          result.write_string("; }\n")
-        }
-        _ => {
-          result.write_string(") => self[")
-          result.write_string(arg_name)
-          result.write_string("]\n")
-        }
-      }
+      // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
+      result.write_string(") => self[")
+      result.write_string(arg_name)
+      result.write_string("]\n")
       result.to_string()
     }
     "setter" => {
@@ -453,35 +507,12 @@ pub fn gen_operation(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  // Add null check for Nullable types
-  // For Promise(Nullable(_)), convert with .then()
-  match op.return_type {
-    Nullable(_) => {
-      result.write_string(") => { const v = self.")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string("); return ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string("; }\n")
-    }
-    Promise(Nullable(_)) => {
-      result.write_string(") => self.")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string(").then(v => ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string(")\n")
-    }
-    _ => {
-      result.write_string(") => self.")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string(")\n")
-    }
-  }
+  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
+  result.write_string(") => self.")
+  result.write_string(op.name)
+  result.write_string("(")
+  result.write_string(js_call_args.to_string())
+  result.write_string(")\n")
   result.to_string()
 }
 
@@ -784,35 +815,12 @@ pub fn gen_operation_with_arg_count(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  // Add null check for Nullable types
-  // For Promise(Nullable(_)), convert with .then()
-  match op.return_type {
-    Nullable(_) => {
-      result.write_string(") => { const v = self.")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string("); return ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string("; }\n")
-    }
-    Promise(Nullable(_)) => {
-      result.write_string(") => self.")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string(").then(v => ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string(")\n")
-    }
-    _ => {
-      result.write_string(") => self.")
-      result.write_string(op.name)
-      result.write_string("(")
-      result.write_string(js_call_args.to_string())
-      result.write_string(")\n")
-    }
-  }
+  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
+  result.write_string(") => self.")
+  result.write_string(op.name)
+  result.write_string("(")
+  result.write_string(js_call_args.to_string())
+  result.write_string(")\n")
   result.to_string()
 }
 
@@ -994,31 +1002,99 @@ pub fn gen_overloaded_static_operations(
     return ""
   }
 
-  // For single static operation, generate normally
+  // For single static operation, handle optional arguments
   if ops.length() == 1 {
-    let base_fn_name = escape_reserved(to_snake_case(ops[0].name))
+    let op = ops[0]
+    let first_optional = find_first_optional_arg_index(op.arguments)
+    let total_args = op.arguments.length()
+    if first_optional < 0 {
+      // No optional args - generate normally
+      let base_fn_name = escape_reserved(to_snake_case(op.name))
+      generated_methods.push(base_fn_name)
+      result.write_string(gen_static_operation(interface_name, op, enum_map))
+      return result.to_string()
+    }
+    // Has optional args - generate base + full versions
+    let base_fn_name = escape_reserved(to_snake_case(op.name))
+    // Base version (required args only)
     generated_methods.push(base_fn_name)
-    result.write_string(gen_static_operation(interface_name, ops[0], enum_map))
+    result.write_string(
+      gen_static_operation_with_arg_count(
+        interface_name, op, enum_map, first_optional, "",
+      ),
+    )
+    result.write_string("\n")
+    // Full version (all args)
+    let last_optional_arg = op.arguments[total_args - 1]
+    let suffix = "_with_" + to_snake_case(last_optional_arg.name)
+    let full_fn_name = base_fn_name + suffix
+    generated_methods.push(full_fn_name)
+    result.write_string(
+      gen_static_operation_with_arg_count(
+        interface_name, op, enum_map, total_args, suffix,
+      ),
+    )
     return result.to_string()
   }
 
   // For multiple overloads
-
   for i = 0; i < ops.length(); i = i + 1 {
     let op = ops[i]
-    if i == 0 {
-      // First overload uses base name
-      let base_fn_name = escape_reserved(to_snake_case(op.name))
-      generated_methods.push(base_fn_name)
-      result.write_string(gen_static_operation(interface_name, op, enum_map))
-      result.write_string("\n")
+    let first_optional = find_first_optional_arg_index(op.arguments)
+    let total_args = op.arguments.length()
+    if first_optional < 0 {
+      // No optional arguments
+      if i == 0 {
+        // First overload uses base name
+        let base_fn_name = escape_reserved(to_snake_case(op.name))
+        generated_methods.push(base_fn_name)
+        result.write_string(gen_static_operation(interface_name, op, enum_map))
+        result.write_string("\n")
+      } else {
+        // Others generate suffix from all arguments
+        let suffix = gen_overload_suffix_from_all(op.arguments)
+        let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
+        generated_methods.push(fn_name)
+        result.write_string(
+          gen_static_operation_with_suffix(interface_name, op, enum_map, suffix),
+        )
+        result.write_string("\n")
+      }
     } else {
-      // Otherwise generate suffix from all arguments (distinguished even with same arg count)
-      let suffix = gen_overload_suffix_from_all(op.arguments)
-      let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
-      generated_methods.push(fn_name)
+      // Has optional arguments - generate both required and full versions
+      let base_fn_name = escape_reserved(to_snake_case(op.name))
+      // Create array with required arguments only
+      let required_args : Array[Argument] = []
+      for j = 0; j < first_optional; j = j + 1 {
+        required_args.push(op.arguments[j])
+      }
+      // Required arguments version
+      let required_suffix = if i == 0 {
+        ""
+      } else {
+        gen_overload_suffix_from_all(required_args)
+      }
+      let required_fn_name = base_fn_name + required_suffix
+      generated_methods.push(required_fn_name)
       result.write_string(
-        gen_static_operation_with_suffix(interface_name, op, enum_map, suffix),
+        gen_static_operation_with_arg_count(
+          interface_name, op, enum_map, first_optional, required_suffix,
+        ),
+      )
+      result.write_string("\n")
+      // Full arguments version
+      let full_suffix = if i == 0 {
+        let last_optional_arg = op.arguments[total_args - 1]
+        "_with_" + to_snake_case(last_optional_arg.name)
+      } else {
+        gen_overload_suffix_from_all(op.arguments)
+      }
+      let full_fn_name = base_fn_name + full_suffix
+      generated_methods.push(full_fn_name)
+      result.write_string(
+        gen_static_operation_with_arg_count(
+          interface_name, op, enum_map, total_args, full_suffix,
+        ),
       )
       result.write_string("\n")
     }
@@ -1044,29 +1120,10 @@ pub fn gen_attribute_getter(
   result.write_string(") -> ")
   result.write_string(return_type)
   result.write_string(" =\n")
-  // Add null check for Nullable types
-  // For Promise(Nullable(_)), convert with .then()
-  match attr.idl_type {
-    Nullable(_) => {
-      result.write_string("  #| (self) => { const v = self.")
-      result.write_string(attr.name)
-      result.write_string("; return ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string("; }\n")
-    }
-    Promise(Nullable(_)) => {
-      result.write_string("  #| (self) => self.")
-      result.write_string(attr.name)
-      result.write_string(".then(v => ")
-      result.write_string(js_null_to_option("v"))
-      result.write_string(")\n")
-    }
-    _ => {
-      result.write_string("  #| (self) => self.")
-      result.write_string(attr.name)
-      result.write_string("\n")
-    }
-  }
+  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
+  result.write_string("  #| (self) => self.")
+  result.write_string(attr.name)
+  result.write_string("\n")
   result.to_string()
 }
 
@@ -1273,6 +1330,83 @@ pub fn gen_constructor_with_suffix(
 }
 
 ///|
+/// Generate Constructor with specified argument count
+/// suffix: Suffix to add to function name (e.g., "_with_base")
+pub fn gen_constructor_with_arg_count(
+  interface_name : String,
+  ctor : ConstructorDef,
+  enum_map : Array[(String, Array[String])],
+  arg_count : Int,
+  suffix : String,
+) -> String {
+  let return_type = interface_name
+
+  // Generate argument list (up to arg_count)
+  let args = StringBuilder::new()
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = ctor.arguments[i]
+    if i > 0 {
+      args.write_string(", ")
+    }
+    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(" : ")
+    args.write_string(idl_type_to_moonbit(arg.idl_type))
+  }
+
+  // Generate JS call code
+  let js_call_args = StringBuilder::new()
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = ctor.arguments[i]
+    if i > 0 {
+      js_call_args.write_string(", ")
+    }
+    let arg_name = escape_reserved(to_snake_case(arg.name))
+    match arg.idl_type {
+      Named(type_name) =>
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
+          None => js_call_args.write_string(arg_name)
+        }
+      Nullable(Named(type_name)) =>
+        match lookup_enum(enum_map, type_name) {
+          Some(values) =>
+            js_call_args.write_string(
+              gen_nullable_enum_array_lookup(values, arg_name),
+            )
+          None => js_call_args.write_string(arg_name)
+        }
+      _ => js_call_args.write_string(arg_name)
+    }
+  }
+  let result = StringBuilder::new()
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(interface_name)
+  result.write_string("::new")
+  result.write_string(suffix)
+  result.write_string("(")
+  result.write_string(args.to_string())
+  result.write_string(") -> ")
+  result.write_string(return_type)
+  result.write_string(" =\n")
+  result.write_string("  #| (")
+  // JS side argument list (variable names only)
+  for i = 0; i < arg_count; i = i + 1 {
+    let arg = ctor.arguments[i]
+    if i > 0 {
+      result.write_string(", ")
+    }
+    result.write_string(escape_reserved(to_snake_case(arg.name)))
+  }
+  result.write_string(") => new ")
+  result.write_string(interface_name)
+  result.write_string("(")
+  result.write_string(js_call_args.to_string())
+  result.write_string(")\n")
+  result.to_string()
+}
+
+///|
 /// Generate extern js fn from Constructor (backward compatible wrapper)
 pub fn gen_constructor(
   interface_name : String,
@@ -1284,7 +1418,9 @@ pub fn gen_constructor(
 
 ///|
 /// Collect all constructors from interface members
-fn collect_constructors(members : Array[InterfaceMember]) -> Array[ConstructorDef] {
+fn collect_constructors(
+  members : Array[InterfaceMember],
+) -> Array[ConstructorDef] {
   members
   .iter()
   .filter_map(fn(mem) {
@@ -1344,7 +1480,6 @@ fn gen_constructor_overload_suffix(
     .iter()
     .filter(fn(c) { c.arguments.length() == current_len })
     .collect()
-
   if same_count_ctors.length() > 1 {
     // Multiple constructors with same arg count - use first argument type for distinction
     if current_len > 0 {
@@ -1364,7 +1499,51 @@ fn gen_constructor_overload_suffix(
 }
 
 ///|
+/// Generate a signature key for a constructor (for deduplication)
+fn constructor_signature(ctor : ConstructorDef) -> String {
+  let sig = StringBuilder::new()
+  for i = 0; i < ctor.arguments.length(); i = i + 1 {
+    if i > 0 {
+      sig.write_string(",")
+    }
+    let arg = ctor.arguments[i]
+    sig.write_string(arg.name)
+    sig.write_string(":")
+    sig.write_string(arg.idl_type.to_moonbit_simple())
+    if arg.optional {
+      sig.write_string("?")
+    }
+  }
+  sig.to_string()
+}
+
+///|
+/// Generate suffix from required argument names (for collision avoidance)
+fn gen_required_args_suffix(args : Array[Argument], count : Int) -> String {
+  if count == 0 {
+    return ""
+  }
+  let result = StringBuilder::new()
+  result.write_string("_with")
+  for i = 0; i < count; i = i + 1 {
+    result.write_string("_")
+    result.write_string(to_snake_case(args[i].name))
+    if i < count - 1 {
+      result.write_string("_and")
+    }
+  }
+  result.to_string()
+}
+
+///|
+/// Check if an array of strings contains a given string
+fn array_contains_string(arr : Array[String], s : String) -> Bool {
+  arr.iter().any(fn(item) { item == s })
+}
+
+///|
 /// Generate all constructor overloads for an interface
+/// Handles both multiple constructor overloads and optional arguments within each constructor
 pub fn gen_all_constructors(
   interface_name : String,
   members : Array[InterfaceMember],
@@ -1375,18 +1554,81 @@ pub fn gen_all_constructors(
     return ""
   }
 
-  // Sort by argument count
-  let sorted = sort_constructors_by_arg_count(constructors)
-  let base_ctor = sorted[0]
+  // Deduplicate constructors with identical signatures
+  let deduped : Array[ConstructorDef] = []
+  let seen_sigs : Array[String] = []
+  for i = 0; i < constructors.length(); i = i + 1 {
+    let sig = constructor_signature(constructors[i])
+    if not(array_contains_string(seen_sigs, sig)) {
+      deduped.push(constructors[i])
+      seen_sigs.push(sig)
+    }
+  }
 
+  // Sort by argument count
+  let sorted = sort_constructors_by_arg_count(deduped)
+  let base_ctor = sorted[0]
   let result = StringBuilder::new()
+  let generated_names : Array[String] = []
   for i = 0; i < sorted.length(); i = i + 1 {
     let ctor = sorted[i]
-    let suffix = gen_constructor_overload_suffix(base_ctor, ctor, sorted)
-    result.write_string(
-      gen_constructor_with_suffix(interface_name, ctor, enum_map, suffix),
-    )
-    result.write_string("\n")
+    let base_suffix = gen_constructor_overload_suffix(base_ctor, ctor, sorted)
+    let first_optional = find_first_optional_arg_index(ctor.arguments)
+    let total_args = ctor.arguments.length()
+    if first_optional < 0 {
+      // No optional args - generate normally
+      let name = "new" + base_suffix
+      if not(array_contains_string(generated_names, name)) {
+        generated_names.push(name)
+        result.write_string(
+          gen_constructor_with_suffix(
+            interface_name, ctor, enum_map, base_suffix,
+          ),
+        )
+        result.write_string("\n")
+      }
+    } else {
+      // Has optional args - generate base (required only) + full versions
+      // Base version (required args only)
+      let base_name = "new" + base_suffix
+      let actual_base_suffix = if array_contains_string(
+        generated_names, base_name,
+      ) {
+        // Collision! Use argument names for distinction
+        gen_required_args_suffix(ctor.arguments, first_optional)
+      } else {
+        base_suffix
+      }
+      let actual_base_name = "new" + actual_base_suffix
+      if not(array_contains_string(generated_names, actual_base_name)) {
+        generated_names.push(actual_base_name)
+        result.write_string(
+          gen_constructor_with_arg_count(
+            interface_name,
+            ctor,
+            enum_map,
+            first_optional,
+            actual_base_suffix,
+          ),
+        )
+        result.write_string("\n")
+      }
+      // Full version (all args)
+      let last_optional_arg = ctor.arguments[total_args - 1]
+      let full_suffix = actual_base_suffix +
+        "_with_" +
+        to_snake_case(last_optional_arg.name)
+      let full_name = "new" + full_suffix
+      if not(array_contains_string(generated_names, full_name)) {
+        generated_names.push(full_name)
+        result.write_string(
+          gen_constructor_with_arg_count(
+            interface_name, ctor, enum_map, total_args, full_suffix,
+          ),
+        )
+        result.write_string("\n")
+      }
+    }
   }
   result.to_string()
 }
@@ -1748,7 +1990,9 @@ pub fn gen_interface_binding(
         // Generate all constructor overloads (handled once via gen_all_constructors)
         if not(has_constructor) {
           has_constructor = true
-          result.write_string(gen_all_constructors(iface.name, iface.members, enum_map))
+          result.write_string(
+            gen_all_constructors(iface.name, iface.members, enum_map),
+          )
         }
       Const(const_def) => {
         let interface_prefix = to_snake_case(iface.name)
@@ -1798,9 +2042,8 @@ fn gen_maplike_methods(
     result.write_string(") -> ")
     result.write_string(value_type)
     result.write_string("? =\n")
-    result.write_string("  #| (self, key) => { const v = self.get(key); return ")
-    result.write_string(js_null_to_option("v"))
-    result.write_string("; }\n\n")
+    // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
+    result.write_string("  #| (self, key) => self.get(key)\n\n")
   }
 
   // has(key) -> Bool
