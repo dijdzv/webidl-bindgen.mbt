@@ -520,6 +520,8 @@ pub fn format_definitions(
   let primitive_typedef_map : Array[(String, IdlType)] = []
   // Create callback interface name list (instanceof -> typeof === 'function')
   let callback_interface_names : Array[String] = []
+  // Create dictionary map (used for dict param → .to_js() conversion)
+  let dict_map : Array[(String, DictionaryDef)] = []
   definitions
   .iter()
   .each(fn(def) {
@@ -528,6 +530,7 @@ pub fn format_definitions(
         enum_map.push((e.name, e.values))
         enum_names.push(e.name)
       }
+      Dictionary(d) => dict_map.push((d.name, d))
       Typedef(t) =>
         match t.idl_type {
           Union(members) => {
@@ -674,7 +677,13 @@ pub fn format_definitions(
     .each(fn(entry) {
       let (_, iface) = entry
       result.write_string(
-        gen_interface_binding(iface, enum_map, interfaces~, inheritance_map~),
+        gen_interface_binding(
+          iface,
+          enum_map,
+          interfaces~,
+          inheritance_map~,
+          dict_map~,
+        ),
       )
       result.write_string("\n")
     })
@@ -973,6 +982,7 @@ pub fn format_spec_output(
   callback_interface_names? : Array[String] = [],
   global_interfaces? : Array[(String, InterfaceDef)] = [],
   global_inheritance_map? : Array[(String, Array[String])] = [],
+  global_dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -1088,6 +1098,7 @@ pub fn format_spec_output(
         global_enum_map,
         interfaces=global_interfaces,
         inheritance_map=global_inheritance_map,
+        dict_map=global_dict_map,
       ),
     )
     result.write_string("\n")

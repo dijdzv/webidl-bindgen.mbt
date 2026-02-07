@@ -113,6 +113,59 @@ fn has_inline_union(collector : InlineUnionCollector, name : String) -> Bool {
 }
 
 ///|
+/// Generate JS call argument expression for a single argument.
+/// Handles: enum array lookup, nullable enum, nullable named type unwrap, Int64 conversion,
+/// dictionary to_js conversion, and pass-through for other types.
+fn gen_js_call_arg(
+  arg : Argument,
+  enum_map : Array[(String, Array[String])],
+  dict_map : Array[(String, DictionaryDef)],
+) -> String {
+  let arg_name = escape_reserved(to_snake_case(arg.name))
+  match arg.idl_type {
+    Named(type_name) =>
+      match lookup_enum(enum_map, type_name) {
+        Some(values) => gen_enum_array_lookup(values, arg_name)
+        None =>
+          // Check if it's a dictionary type → call .to_js()
+          if not(lookup_dict(dict_map, type_name) is None) {
+            arg_name + ".to_js()"
+          } else if is_int64_type(arg.idl_type) {
+            int64_param_to_js(arg_name)
+          } else {
+            arg_name
+          }
+      }
+    Nullable(Named(type_name)) =>
+      match lookup_enum(enum_map, type_name) {
+        Some(values) => gen_nullable_enum_array_lookup(values, arg_name)
+        None =>
+          // Nullable named type: unwrap from MoonBit Nullable enum
+          unwrap_nullable_named_param(arg_name)
+      }
+    Primitive("long long") | Primitive("unsigned long long") =>
+      int64_param_to_js(arg_name)
+    _ => arg_name
+  }
+}
+
+///|
+/// Lookup dictionary by name from dict_map
+pub fn lookup_dict(
+  dict_map : Array[(String, DictionaryDef)],
+  name : String,
+) -> DictionaryDef? {
+  dict_map
+  .iter()
+  .fold(init=(None : DictionaryDef?), fn(found, entry) {
+    match found {
+      Some(_) => found
+      None => if entry.0 == name { Some(entry.1) } else { None }
+    }
+  })
+}
+
+///|
 /// Remove first character from string
 fn remove_leading_char(s : String) -> String {
   let chars = s.to_array()
@@ -128,8 +181,9 @@ pub fn gen_static_operation(
   interface_name : String,
   op : OperationDef,
   enum_map : Array[(String, Array[String])],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  gen_static_operation_with_suffix(interface_name, op, enum_map, "")
+  gen_static_operation_with_suffix(interface_name, op, enum_map, "", dict_map~)
 }
 
 ///|
@@ -139,6 +193,7 @@ pub fn gen_static_operation_with_suffix(
   op : OperationDef,
   enum_map : Array[(String, Array[String])],
   suffix : String,
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   // Skip special methods without name
   if op.name.is_empty() {
@@ -156,38 +211,20 @@ pub fn gen_static_operation_with_suffix(
     if i > 0 {
       args.write_string(", ")
     }
-    // Escape reserved keywords for argument names
     args.write_string(escape_reserved(to_snake_case(arg.name)))
     args.write_string(" : ")
     args.write_string(idl_type_to_moonbit(arg.idl_type))
   }
 
-  // JS call arguments (convert enum to string via array lookup)
+  // JS call arguments
   let js_call_args = StringBuilder::new()
   for i = 0; i < args_len; i = i + 1 {
-    let arg = op.arguments[i]
     if i > 0 {
       js_call_args.write_string(", ")
     }
-    let arg_name = escape_reserved(to_snake_case(arg.name))
-    // Check if argument type is enum
-    match arg.idl_type {
-      Named(type_name) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
-          None => js_call_args.write_string(arg_name)
-        }
-      Nullable(Named(type_name)) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(
-              gen_nullable_enum_array_lookup(values, arg_name),
-            )
-          None => js_call_args.write_string(arg_name)
-        }
-      _ => js_call_args.write_string(arg_name)
-    }
+    js_call_args.write_string(
+      gen_js_call_arg(op.arguments[i], enum_map, dict_map),
+    )
   }
 
   // JS side argument list (variable names only)
@@ -211,8 +248,13 @@ pub fn gen_static_operation_with_suffix(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
-  let js_expr = interface_name + "." + op.name + "(" + js_call_args.to_string() + ")"
-  let wrapped = wrap_nullable_return(js_expr, op.return_type)
+  let js_expr = interface_name +
+    "." +
+    op.name +
+    "(" +
+    js_call_args.to_string() +
+    ")"
+  let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -228,6 +270,7 @@ pub fn gen_static_operation_with_arg_count(
   enum_map : Array[(String, Array[String])],
   arg_count : Int,
   fn_suffix : String,
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   if op.name.is_empty() {
     return ""
@@ -252,31 +295,15 @@ pub fn gen_static_operation_with_arg_count(
     args.write_string(idl_type_to_moonbit(arg.idl_type))
   }
 
-  // JS call arguments (convert enum to string via array lookup)
+  // JS call arguments
   let js_call_args = StringBuilder::new()
   for i = 0; i < arg_count; i = i + 1 {
-    let arg = op.arguments[i]
     if i > 0 {
       js_call_args.write_string(", ")
     }
-    let arg_name = escape_reserved(to_snake_case(arg.name))
-    match arg.idl_type {
-      Named(type_name) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
-          None => js_call_args.write_string(arg_name)
-        }
-      Nullable(Named(type_name)) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(
-              gen_nullable_enum_array_lookup(values, arg_name),
-            )
-          None => js_call_args.write_string(arg_name)
-        }
-      _ => js_call_args.write_string(arg_name)
-    }
+    js_call_args.write_string(
+      gen_js_call_arg(op.arguments[i], enum_map, dict_map),
+    )
   }
 
   // JS side argument list (variable names only)
@@ -300,8 +327,13 @@ pub fn gen_static_operation_with_arg_count(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
-  let js_expr = interface_name + "." + op.name + "(" + js_call_args.to_string() + ")"
-  let wrapped = wrap_nullable_return(js_expr, op.return_type)
+  let js_expr = interface_name +
+    "." +
+    op.name +
+    "(" +
+    js_call_args.to_string() +
+    ")"
+  let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -352,7 +384,7 @@ pub fn gen_special_operation(
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
       let js_expr = "self[" + arg_name + "]"
-      let wrapped = wrap_nullable_return(js_expr, op.return_type)
+      let wrapped = wrap_return_expr(js_expr, op.return_type)
       result.write_string(") => ")
       result.write_string(wrapped)
       result.write_string("\n")
@@ -431,6 +463,7 @@ pub fn gen_operation(
   interface_name : String,
   op : OperationDef,
   enum_map : Array[(String, Array[String])],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   // Skip regular methods without name
   // (special operations are handled in gen_interface_binding)
@@ -463,32 +496,15 @@ pub fn gen_operation(
     js_args.write_string(escape_reserved(to_snake_case(arg.name)))
   }
 
-  // JS call arguments (convert enum to string via array lookup)
+  // JS call arguments
   let js_call_args = StringBuilder::new()
   for i = 0; i < args_len; i = i + 1 {
-    let arg = op.arguments[i]
     if i > 0 {
       js_call_args.write_string(", ")
     }
-    let arg_name = escape_reserved(to_snake_case(arg.name))
-    // Check if argument type is enum
-    match arg.idl_type {
-      Named(type_name) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
-          None => js_call_args.write_string(arg_name)
-        }
-      Nullable(Named(type_name)) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(
-              gen_nullable_enum_array_lookup(values, arg_name),
-            )
-          None => js_call_args.write_string(arg_name)
-        }
-      _ => js_call_args.write_string(arg_name)
-    }
+    js_call_args.write_string(
+      gen_js_call_arg(op.arguments[i], enum_map, dict_map),
+    )
   }
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
@@ -503,7 +519,7 @@ pub fn gen_operation(
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
-  let wrapped = wrap_nullable_return(js_expr, op.return_type)
+  let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -738,6 +754,7 @@ pub fn gen_operation_with_arg_count(
   enum_map : Array[(String, Array[String])],
   arg_count : Int,
   fn_suffix : String,
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   if op.name.is_empty() {
     return ""
@@ -771,31 +788,15 @@ pub fn gen_operation_with_arg_count(
     js_args.write_string(escape_reserved(to_snake_case(arg.name)))
   }
 
-  // JS call arguments (convert enum to string via array lookup)
+  // JS call arguments
   let js_call_args = StringBuilder::new()
   for i = 0; i < arg_count; i = i + 1 {
-    let arg = op.arguments[i]
     if i > 0 {
       js_call_args.write_string(", ")
     }
-    let arg_name = escape_reserved(to_snake_case(arg.name))
-    match arg.idl_type {
-      Named(type_name) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
-          None => js_call_args.write_string(arg_name)
-        }
-      Nullable(Named(type_name)) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(
-              gen_nullable_enum_array_lookup(values, arg_name),
-            )
-          None => js_call_args.write_string(arg_name)
-        }
-      _ => js_call_args.write_string(arg_name)
-    }
+    js_call_args.write_string(
+      gen_js_call_arg(op.arguments[i], enum_map, dict_map),
+    )
   }
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
@@ -810,7 +811,7 @@ pub fn gen_operation_with_arg_count(
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
-  let wrapped = wrap_nullable_return(js_expr, op.return_type)
+  let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -824,6 +825,7 @@ pub fn gen_operation_variants(
   interface_name : String,
   op : OperationDef,
   enum_map : Array[(String, Array[String])],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> (String, Array[String]) {
   let result = StringBuilder::new()
   let fn_names : Array[String] = []
@@ -835,7 +837,7 @@ pub fn gen_operation_variants(
 
   // Generate normally if no optional arguments
   if first_optional < 0 {
-    let code = gen_operation(interface_name, op, enum_map)
+    let code = gen_operation(interface_name, op, enum_map, dict_map~)
     result.write_string(code)
     fn_names.push(escape_reserved(to_snake_case(op.name)))
     return (result.to_string(), fn_names)
@@ -844,7 +846,12 @@ pub fn gen_operation_variants(
   // Generate base version with required arguments only
   let base_fn_name = escape_reserved(to_snake_case(op.name))
   let base_code = gen_operation_with_arg_count(
-    interface_name, op, enum_map, first_optional, "",
+    interface_name,
+    op,
+    enum_map,
+    first_optional,
+    "",
+    dict_map~,
   )
   result.write_string(base_code)
   result.write_string("\n")
@@ -855,7 +862,12 @@ pub fn gen_operation_variants(
   let last_optional_arg = op.arguments[total_args - 1]
   let suffix = "with_" + to_snake_case(last_optional_arg.name)
   let full_code = gen_operation_with_arg_count(
-    interface_name, op, enum_map, total_args, suffix,
+    interface_name,
+    op,
+    enum_map,
+    total_args,
+    suffix,
+    dict_map~,
   )
   result.write_string(full_code)
   fn_names.push(base_fn_name + "_" + suffix)
@@ -870,6 +882,7 @@ pub fn gen_overloaded_operations(
   ops : Array[OperationDef],
   enum_map : Array[(String, Array[String])],
   generated_methods : Array[String],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -884,6 +897,7 @@ pub fn gen_overloaded_operations(
       interface_name,
       ops[0],
       enum_map,
+      dict_map~,
     )
     fn_names.iter().each(fn(name) { generated_methods.push(name) })
     return code
@@ -902,7 +916,9 @@ pub fn gen_overloaded_operations(
         // First overload (minimum arguments) uses base name
         let base_fn_name = escape_reserved(to_snake_case(op.name))
         generated_methods.push(base_fn_name)
-        result.write_string(gen_operation(interface_name, op, enum_map))
+        result.write_string(
+          gen_operation(interface_name, op, enum_map, dict_map~),
+        )
         result.write_string("\n")
       } else {
         // Others generate suffix from all arguments (distinguishes even same argument count)
@@ -916,6 +932,7 @@ pub fn gen_overloaded_operations(
             enum_map,
             total_args,
             remove_leading_char(suffix), // Remove leading underscore
+            dict_map~,
           ),
         )
         result.write_string("\n")
@@ -950,6 +967,7 @@ pub fn gen_overloaded_operations(
           } else {
             remove_leading_char(required_suffix)
           },
+          dict_map~,
         ),
       )
       result.write_string("\n")
@@ -972,6 +990,7 @@ pub fn gen_overloaded_operations(
           enum_map,
           total_args,
           remove_leading_char(full_suffix),
+          dict_map~,
         ),
       )
       result.write_string("\n")
@@ -987,6 +1006,7 @@ pub fn gen_overloaded_static_operations(
   ops : Array[OperationDef],
   enum_map : Array[(String, Array[String])],
   generated_methods : Array[String],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -1004,7 +1024,9 @@ pub fn gen_overloaded_static_operations(
       // No optional args - generate normally
       let base_fn_name = escape_reserved(to_snake_case(op.name))
       generated_methods.push(base_fn_name)
-      result.write_string(gen_static_operation(interface_name, op, enum_map))
+      result.write_string(
+        gen_static_operation(interface_name, op, enum_map, dict_map~),
+      )
       return result.to_string()
     }
     // Has optional args - generate base + full versions
@@ -1013,7 +1035,12 @@ pub fn gen_overloaded_static_operations(
     generated_methods.push(base_fn_name)
     result.write_string(
       gen_static_operation_with_arg_count(
-        interface_name, op, enum_map, first_optional, "",
+        interface_name,
+        op,
+        enum_map,
+        first_optional,
+        "",
+        dict_map~,
       ),
     )
     result.write_string("\n")
@@ -1024,7 +1051,12 @@ pub fn gen_overloaded_static_operations(
     generated_methods.push(full_fn_name)
     result.write_string(
       gen_static_operation_with_arg_count(
-        interface_name, op, enum_map, total_args, suffix,
+        interface_name,
+        op,
+        enum_map,
+        total_args,
+        suffix,
+        dict_map~,
       ),
     )
     return result.to_string()
@@ -1041,7 +1073,9 @@ pub fn gen_overloaded_static_operations(
         // First overload uses base name
         let base_fn_name = escape_reserved(to_snake_case(op.name))
         generated_methods.push(base_fn_name)
-        result.write_string(gen_static_operation(interface_name, op, enum_map))
+        result.write_string(
+          gen_static_operation(interface_name, op, enum_map, dict_map~),
+        )
         result.write_string("\n")
       } else {
         // Others generate suffix from all arguments
@@ -1049,7 +1083,13 @@ pub fn gen_overloaded_static_operations(
         let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
         generated_methods.push(fn_name)
         result.write_string(
-          gen_static_operation_with_suffix(interface_name, op, enum_map, suffix),
+          gen_static_operation_with_suffix(
+            interface_name,
+            op,
+            enum_map,
+            suffix,
+            dict_map~,
+          ),
         )
         result.write_string("\n")
       }
@@ -1071,7 +1111,12 @@ pub fn gen_overloaded_static_operations(
       generated_methods.push(required_fn_name)
       result.write_string(
         gen_static_operation_with_arg_count(
-          interface_name, op, enum_map, first_optional, required_suffix,
+          interface_name,
+          op,
+          enum_map,
+          first_optional,
+          required_suffix,
+          dict_map~,
         ),
       )
       result.write_string("\n")
@@ -1086,7 +1131,12 @@ pub fn gen_overloaded_static_operations(
       generated_methods.push(full_fn_name)
       result.write_string(
         gen_static_operation_with_arg_count(
-          interface_name, op, enum_map, total_args, full_suffix,
+          interface_name,
+          op,
+          enum_map,
+          total_args,
+          full_suffix,
+          dict_map~,
         ),
       )
       result.write_string("\n")
@@ -1114,7 +1164,7 @@ pub fn gen_attribute_getter(
   result.write_string(return_type)
   result.write_string(" =\n")
   let js_expr = "self." + attr.name
-  let wrapped = wrap_nullable_return(js_expr, attr.idl_type)
+  let wrapped = wrap_return_expr(js_expr, attr.idl_type)
   result.write_string("  #| (self) => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -1251,6 +1301,7 @@ pub fn gen_constructor_with_suffix(
   ctor : ConstructorDef,
   enum_map : Array[(String, Array[String])],
   suffix : String,
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   let return_type = interface_name
 
@@ -1262,7 +1313,6 @@ pub fn gen_constructor_with_suffix(
     if i > 0 {
       args.write_string(", ")
     }
-    // Escape reserved keywords for argument names
     args.write_string(escape_reserved(to_snake_case(arg.name)))
     args.write_string(" : ")
     args.write_string(idl_type_to_moonbit(arg.idl_type))
@@ -1271,29 +1321,12 @@ pub fn gen_constructor_with_suffix(
   // Generate JS call code
   let js_call_args = StringBuilder::new()
   for i = 0; i < args_len; i = i + 1 {
-    let arg = ctor.arguments[i]
     if i > 0 {
       js_call_args.write_string(", ")
     }
-    let arg_name = escape_reserved(to_snake_case(arg.name))
-    // Check if argument type is enum
-    match arg.idl_type {
-      Named(type_name) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
-          None => js_call_args.write_string(arg_name)
-        }
-      Nullable(Named(type_name)) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(
-              gen_nullable_enum_array_lookup(values, arg_name),
-            )
-          None => js_call_args.write_string(arg_name)
-        }
-      _ => js_call_args.write_string(arg_name)
-    }
+    js_call_args.write_string(
+      gen_js_call_arg(ctor.arguments[i], enum_map, dict_map),
+    )
   }
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
@@ -1332,6 +1365,7 @@ pub fn gen_constructor_with_arg_count(
   enum_map : Array[(String, Array[String])],
   arg_count : Int,
   suffix : String,
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   let return_type = interface_name
 
@@ -1350,28 +1384,12 @@ pub fn gen_constructor_with_arg_count(
   // Generate JS call code
   let js_call_args = StringBuilder::new()
   for i = 0; i < arg_count; i = i + 1 {
-    let arg = ctor.arguments[i]
     if i > 0 {
       js_call_args.write_string(", ")
     }
-    let arg_name = escape_reserved(to_snake_case(arg.name))
-    match arg.idl_type {
-      Named(type_name) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(gen_enum_array_lookup(values, arg_name))
-          None => js_call_args.write_string(arg_name)
-        }
-      Nullable(Named(type_name)) =>
-        match lookup_enum(enum_map, type_name) {
-          Some(values) =>
-            js_call_args.write_string(
-              gen_nullable_enum_array_lookup(values, arg_name),
-            )
-          None => js_call_args.write_string(arg_name)
-        }
-      _ => js_call_args.write_string(arg_name)
-    }
+    js_call_args.write_string(
+      gen_js_call_arg(ctor.arguments[i], enum_map, dict_map),
+    )
   }
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
@@ -1406,8 +1424,9 @@ pub fn gen_constructor(
   interface_name : String,
   ctor : ConstructorDef,
   enum_map : Array[(String, Array[String])],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  gen_constructor_with_suffix(interface_name, ctor, enum_map, "")
+  gen_constructor_with_suffix(interface_name, ctor, enum_map, "", dict_map~)
 }
 
 ///|
@@ -1542,6 +1561,7 @@ pub fn gen_all_constructors(
   interface_name : String,
   members : Array[InterfaceMember],
   enum_map : Array[(String, Array[String])],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   let constructors = collect_constructors(members)
   if constructors.length() == 0 {
@@ -1576,7 +1596,11 @@ pub fn gen_all_constructors(
         generated_names.push(name)
         result.write_string(
           gen_constructor_with_suffix(
-            interface_name, ctor, enum_map, base_suffix,
+            interface_name,
+            ctor,
+            enum_map,
+            base_suffix,
+            dict_map~,
           ),
         )
         result.write_string("\n")
@@ -1586,8 +1610,8 @@ pub fn gen_all_constructors(
       // Base version (required args only)
       let base_name = "new" + base_suffix
       let actual_base_suffix = if array_contains_string(
-        generated_names, base_name,
-      ) {
+          generated_names, base_name,
+        ) {
         // Collision! Use argument names for distinction
         gen_required_args_suffix(ctor.arguments, first_optional)
       } else {
@@ -1603,6 +1627,7 @@ pub fn gen_all_constructors(
             enum_map,
             first_optional,
             actual_base_suffix,
+            dict_map~,
           ),
         )
         result.write_string("\n")
@@ -1617,7 +1642,12 @@ pub fn gen_all_constructors(
         generated_names.push(full_name)
         result.write_string(
           gen_constructor_with_arg_count(
-            interface_name, ctor, enum_map, total_args, full_suffix,
+            interface_name,
+            ctor,
+            enum_map,
+            total_args,
+            full_suffix,
+            dict_map~,
           ),
         )
         result.write_string("\n")
@@ -1750,6 +1780,7 @@ pub fn gen_interface_binding(
   enum_map : Array[(String, Array[String])],
   interfaces? : Array[(String, InterfaceDef)] = [],
   inheritance_map? : Array[(String, Array[String])] = [],
+  dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -1859,7 +1890,9 @@ pub fn gen_interface_binding(
               let fn_name = to_snake_case(op.name)
               if not(generated_methods.contains(fn_name)) {
                 generated_methods.push(fn_name)
-                result.write_string(gen_operation(iface.name, op, enum_map))
+                result.write_string(
+                  gen_operation(iface.name, op, enum_map, dict_map~),
+                )
                 result.write_string("\n")
               }
             }
@@ -1929,6 +1962,7 @@ pub fn gen_interface_binding(
                   group,
                   enum_map,
                   generated_methods,
+                  dict_map~,
                 )
                 result.write_string(code)
                 result.write_string("\n")
@@ -1955,6 +1989,7 @@ pub fn gen_interface_binding(
                 group,
                 enum_map,
                 generated_methods,
+                dict_map~,
               )
               result.write_string(code)
               result.write_string("\n")
@@ -1985,7 +2020,7 @@ pub fn gen_interface_binding(
         if not(has_constructor) {
           has_constructor = true
           result.write_string(
-            gen_all_constructors(iface.name, iface.members, enum_map),
+            gen_all_constructors(iface.name, iface.members, enum_map, dict_map~),
           )
         }
       Const(const_def) => {

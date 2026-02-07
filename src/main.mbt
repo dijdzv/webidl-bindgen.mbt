@@ -258,6 +258,8 @@ async fn main {
       let primitive_typedef_map : Array[(String, IdlType)] = []
       // Build callback interface names list (for instanceof -> typeof === 'function')
       let callback_interface_names : Array[String] = []
+      // Build global dictionary map (for dict param → .to_js() conversion)
+      let global_dict_map : Array[(String, DictionaryDef)] = []
       all_definitions
       .iter()
       .each(fn(def) {
@@ -275,7 +277,10 @@ async fn main {
               // Non-union typedef (primitive alias like DOMHighResTimeStamp = double)
               other => primitive_typedef_map.push((t.name, other))
             }
-          Dictionary(d) => dictionary_names.push(d.name)
+          Dictionary(d) => {
+            dictionary_names.push(d.name)
+            global_dict_map.push((d.name, d))
+          }
           CallbackInterface(cb) => callback_interface_names.push(cb.name)
           _ => ()
         }
@@ -356,6 +361,7 @@ async fn main {
                 callback_interface_names~,
                 global_interfaces~,
                 global_inheritance_map~,
+                global_dict_map~,
               )
               // Skip empty files (no definitions after merging)
               if merged.length() > 0 {

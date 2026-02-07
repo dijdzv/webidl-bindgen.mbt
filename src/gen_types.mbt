@@ -896,9 +896,17 @@ fn gen_union_as_cast(
   result.write_string("? =\n  #| (self) => (")
   result.write_string(js_check)
   result.write_string(") ? ")
-  result.write_string(js_some("self"))
-  result.write_string(" : ")
-  result.write_string(js_none())
+  // Use primitive Option representation (value/undefined) for primitive types,
+  // tagged representation ({$tag:1,_0:v}/{$tag:0}) for non-primitive types
+  if is_primitive_option_type(member_type) {
+    result.write_string("self")
+    result.write_string(" : ")
+    result.write_string("undefined")
+  } else {
+    result.write_string(js_some("self"))
+    result.write_string(" : ")
+    result.write_string(js_none())
+  }
   result.write_string("\n\n")
   result.to_string()
 }

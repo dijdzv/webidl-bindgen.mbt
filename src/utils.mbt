@@ -253,6 +253,77 @@ pub fn js_nullable_payload(var_name : String) -> String {
 }
 
 ///|
+/// Unwrap a Nullable named parameter for JS call
+/// MoonBit Nullable enum: {$tag:0}=Undefined, {$tag:1}=Null, {$tag:2,$0:v}=Value
+/// Example: unwrap_nullable_named_param("listener") =>
+///   "(listener.$tag === 2 ? listener.$0 : listener.$tag === 1 ? null : undefined)"
+pub fn unwrap_nullable_named_param(param_name : String) -> String {
+  "(" +
+  param_name +
+  ".$tag === 2 ? " +
+  param_name +
+  ".$0 : " +
+  param_name +
+  ".$tag === 1 ? null : undefined)"
+}
+
+///|
+/// Check if an IdlType is Int64 (long long / unsigned long long)
+pub fn is_int64_type(idl_type : IdlType) -> Bool {
+  match idl_type {
+    Primitive("long long") | Primitive("unsigned long long") => true
+    _ => false
+  }
+}
+
+///|
+/// Wrap a JS expression to convert JS Number to MoonBit Int64 ({hi, lo} struct)
+/// Example: wrap_int64_return("self.x") =>
+///   "(() => { const n = self.x; return { hi: Math.floor(n / 4294967296), lo: n >>> 0 }; })()"
+pub fn wrap_int64_return(js_expr : String) -> String {
+  "(() => { const n = " +
+  js_expr +
+  "; return { hi: Math.floor(n / 4294967296), lo: n >>> 0 }; })()"
+}
+
+///|
+/// Convert MoonBit Int64 parameter to JS Number expression
+/// Example: int64_param_to_js("offset") => "(offset.hi * 4294967296 + offset.lo)"
+pub fn int64_param_to_js(param_name : String) -> String {
+  "(" + param_name + ".hi * 4294967296 + " + param_name + ".lo)"
+}
+
+///|
+/// Unified return expression wrapper that handles both Int64 and Nullable returns.
+/// Replaces direct calls to wrap_nullable_return in gen_interface.mbt.
+pub fn wrap_return_expr(js_expr : String, return_type : IdlType) -> String {
+  match return_type {
+    Nullable(inner) =>
+      if is_int64_type(inner) {
+        // Nullable Int64: check null first, then convert to {hi, lo}
+        if is_primitive_option_type(inner) {
+          // Int64 is primitive, so use undefined for None
+          "(() => { const v = " +
+          js_expr +
+          "; if (v == null) return undefined; const n = v; return { hi: Math.floor(n / 4294967296), lo: n >>> 0 }; })()"
+        } else {
+          "(() => { const v = " +
+          js_expr +
+          "; if (v == null) return { $tag: 0 }; const n = v; return { $tag: 1, _0: { hi: Math.floor(n / 4294967296), lo: n >>> 0 } }; })()"
+        }
+      } else {
+        wrap_nullable_return(js_expr, return_type)
+      }
+    _ =>
+      if is_int64_type(return_type) {
+        wrap_int64_return(js_expr)
+      } else {
+        js_expr
+      }
+  }
+}
+
+///|
 /// Convert WebIDL primitive type to MoonBit type
 /// Unknown primitives print a warning and return "JsValue"
 pub fn primitive_to_moonbit(name : String) -> String {
