@@ -166,30 +166,57 @@ pub fn escape_reserved(name : String) -> String {
 }
 
 // --- Option (built-in type) JS representation helpers ---
+//
+// MoonBit's JS backend uses different representations for Option depending on
+// the inner type:
+//   - String?, Bool?, Int? etc. (primitives): undefined = None, raw value = Some
+//   - UserType? (opaque/named types): { $tag: 0 } = None, { $tag: 1, _0: v } = Some
+
+///|
+/// Check if an IdlType uses the primitive Option representation (undefined/value)
+/// vs the tagged representation ({ $tag: 0/1 })
+pub fn is_primitive_option_type(inner_type : IdlType) -> Bool {
+  match inner_type {
+    String => true
+    Primitive(_) => true
+    _ => false
+  }
+}
 
 ///|
 /// Build JS expression for Option::Some in extern "js" return context
-/// MoonBit auto-wraps non-null values as Some, so just return the raw value
-/// Example: js_some("v") => "v"
+/// Used for user-defined types (instanceof checks, union casts)
+/// Example: js_some("self") => "{ $tag: 1, _0: self }"
 pub fn js_some(value_expr : String) -> String {
-  value_expr
+  "{ $tag: 1, _0: " + value_expr + " }"
 }
 
 ///|
 /// Build JS expression for Option::None in extern "js" return context
-/// MoonBit auto-wraps null as None, so just return null
-/// Example: js_none() => "null"
+/// Used for user-defined types (instanceof checks, union casts)
+/// Example: js_none() => "{ $tag: 0 }"
 pub fn js_none() -> String {
-  "null"
+  "{ $tag: 0 }"
 }
 
 ///|
-/// Build JS expression to convert nullable JS value to Option
-/// MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
-/// So no conversion is needed - just return the raw value
-/// Example: js_null_to_option("v") => "v"
-pub fn js_null_to_option(value_expr : String) -> String {
-  value_expr
+/// Wrap a JS call expression to handle nullable return types.
+/// Converts JS null/undefined to the correct MoonBit Option representation.
+/// For non-nullable types, returns the expression unchanged.
+pub fn wrap_nullable_return(js_expr : String, return_type : IdlType) -> String {
+  match return_type {
+    Nullable(inner) =>
+      if is_primitive_option_type(inner) {
+        // String?, Bool?, Int?: convert null to undefined (MoonBit's None for primitives)
+        "(" + js_expr + ") ?? undefined"
+      } else {
+        // User-defined type?: wrap with $tag
+        "(() => { const v = " +
+        js_expr +
+        "; return v == null ? { $tag: 0 } : { $tag: 1, _0: v }; })()"
+      }
+    _ => js_expr
+  }
 }
 
 ///|

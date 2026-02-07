@@ -211,15 +211,11 @@ pub fn gen_static_operation_with_suffix(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
-  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
-  // So no special handling is needed for Nullable or Promise(Nullable) return types
+  let js_expr = interface_name + "." + op.name + "(" + js_call_args.to_string() + ")"
+  let wrapped = wrap_nullable_return(js_expr, op.return_type)
   result.write_string(") => ")
-  result.write_string(interface_name)
-  result.write_string(".")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  result.write_string(wrapped)
+  result.write_string("\n")
   result.to_string()
 }
 
@@ -304,13 +300,11 @@ pub fn gen_static_operation_with_arg_count(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_params.to_string())
+  let js_expr = interface_name + "." + op.name + "(" + js_call_args.to_string() + ")"
+  let wrapped = wrap_nullable_return(js_expr, op.return_type)
   result.write_string(") => ")
-  result.write_string(interface_name)
-  result.write_string(".")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  result.write_string(wrapped)
+  result.write_string("\n")
   result.to_string()
 }
 
@@ -357,10 +351,11 @@ pub fn gen_special_operation(
       result.write_string(" =\n")
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
-      // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
-      result.write_string(") => self[")
-      result.write_string(arg_name)
-      result.write_string("]\n")
+      let js_expr = "self[" + arg_name + "]"
+      let wrapped = wrap_nullable_return(js_expr, op.return_type)
+      result.write_string(") => ")
+      result.write_string(wrapped)
+      result.write_string("\n")
       result.to_string()
     }
     "setter" => {
@@ -507,12 +502,11 @@ pub fn gen_operation(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
-  result.write_string(") => self.")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
+  let wrapped = wrap_nullable_return(js_expr, op.return_type)
+  result.write_string(") => ")
+  result.write_string(wrapped)
+  result.write_string("\n")
   result.to_string()
 }
 
@@ -815,12 +809,11 @@ pub fn gen_operation_with_arg_count(
   result.write_string(" =\n")
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
-  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
-  result.write_string(") => self.")
-  result.write_string(op.name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
+  let wrapped = wrap_nullable_return(js_expr, op.return_type)
+  result.write_string(") => ")
+  result.write_string(wrapped)
+  result.write_string("\n")
   result.to_string()
 }
 
@@ -1120,9 +1113,10 @@ pub fn gen_attribute_getter(
   result.write_string(") -> ")
   result.write_string(return_type)
   result.write_string(" =\n")
-  // MoonBit auto-wraps extern "js" returns: null/undefined → None, value → Some(value)
-  result.write_string("  #| (self) => self.")
-  result.write_string(attr.name)
+  let js_expr = "self." + attr.name
+  let wrapped = wrap_nullable_return(js_expr, attr.idl_type)
+  result.write_string("  #| (self) => ")
+  result.write_string(wrapped)
   result.write_string("\n")
   result.to_string()
 }
