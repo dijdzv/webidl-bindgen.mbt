@@ -1721,6 +1721,13 @@ pub fn gen_attribute_setter(
           result.write_string(" = value }\n")
         }
       }
+    Nullable(Named(_)) => {
+      result.write_string("  #| (self, value) => { self.")
+      result.write_string(attr.name)
+      result.write_string(" = ")
+      result.write_string(unwrap_option_named_param("value"))
+      result.write_string(" }\n")
+    }
     _ => {
       result.write_string("  #| (self, value) => { self.")
       result.write_string(attr.name)
