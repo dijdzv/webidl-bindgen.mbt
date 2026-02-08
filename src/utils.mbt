@@ -253,6 +253,16 @@ pub fn js_nullable_payload(var_name : String) -> String {
 }
 
 ///|
+/// Unwrap an Option[Named] parameter for JS call
+/// MoonBit Option: {$tag:0}=None, {$tag:1, _0:v}=Some
+/// WebIDL Nullable(Named(T)) maps to MoonBit Option[T]
+/// Example: unwrap_option_named_param("listener") =>
+///   "(listener.$tag === 1 ? listener._0 : null)"
+pub fn unwrap_option_named_param(param_name : String) -> String {
+  "(" + param_name + ".$tag === 1 ? " + param_name + "._0 : null)"
+}
+
+///|
 /// Unwrap a Nullable named parameter for JS call
 /// MoonBit Nullable enum: {$tag:0}=Undefined, {$tag:1}=Null, {$tag:2,$0:v}=Value
 /// Example: unwrap_nullable_named_param("listener") =>

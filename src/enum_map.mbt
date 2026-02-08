@@ -45,6 +45,35 @@ pub fn gen_enum_array_lookup(
 }
 
 ///|
+/// Generate enum indexOf expression (JS string → MoonBit enum index)
+/// Example: gen_enum_index_of_expr(["sendrecv", "sendonly"], "self.direction") =>
+///   "['sendrecv', 'sendonly'].indexOf(self.direction)"
+pub fn gen_enum_index_of_expr(
+  values : Array[String],
+  str_expr : String,
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string("[")
+  ignore(
+    values
+    .iter()
+    .fold(init=true, fn(first, v) {
+      if not(first) {
+        result.write_string(", ")
+      }
+      result.write_string("'")
+      result.write_string(v)
+      result.write_string("'")
+      false
+    }),
+  )
+  result.write_string("].indexOf(")
+  result.write_string(str_expr)
+  result.write_string(")")
+  result.to_string()
+}
+
+///|
 /// Generate nullable enum array lookup expression (with null check)
 /// Example: (var_name != null ? ['value1', 'value2'][var_name] : null)
 pub fn gen_nullable_enum_array_lookup(

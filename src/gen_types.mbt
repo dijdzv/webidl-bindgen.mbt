@@ -167,11 +167,10 @@ pub fn gen_dictionary(
     result = result + "}\n\n"
   }
 
-  // Conversion function to JsValue
-  result = result + "/// Convert to JsValue\n"
-  result = result + "pub extern \"js\" fn "
+  // Conversion function to JsValue (FFI implementation)
+  result = result + "extern \"js\" fn "
   result = result + dict.name
-  result = result + "::to_js(self : "
+  result = result + "::to_js_ffi(self : "
   result = result + dict.name
   result = result + ") -> JsValue =\n"
   result = result + "  #| (self) => ({\n"
@@ -209,6 +208,17 @@ pub fn gen_dictionary(
       (acc + "  #|   " + mem.name + ": " + value_expr + comma + "\n", idx + 1)
     }).0
   result = result + "  #| })\n\n"
+  // Public wrapper (callable from MoonBit code, survives DCE)
+  result = result + "/// Convert to JsValue\n"
+  result = result + "pub fn "
+  result = result + dict.name
+  result = result + "::to_js(self : "
+  result = result + dict.name
+  result = result + ") -> JsValue {\n"
+  result = result + "  "
+  result = result + dict.name
+  result = result + "::to_js_ffi(self)\n"
+  result = result + "}\n\n"
   result
 }
 
@@ -255,24 +265,49 @@ fn gen_field_value_expr(
 
 ///|
 /// Generate JS expression for optional (Option[T]) field
-/// Explicitly converts Option to JS: Some → value, None → undefined
+/// MoonBit JS backend Option representations:
+///   - String?:    None=undefined, Some=value  → pass-through
+///   - Bool?:      None=-1, Some=true/false    → -1 to undefined conversion
+///   - Int?/Double?: None=undefined, Some=value → pass-through (TODO: verify)
+///   - Enum?:      None=undefined, Some=index  → undefined check + array lookup
+///   - Named?:     None={$tag:0}, Some={$tag:1,_0:v} → tagged unwrap
 fn gen_optional_field_value_expr(
   idl_type : IdlType,
   field_name : String,
   enum_map : Array[(String, Array[String])],
   union_set : Array[String],
 ) -> String {
-  // Determine the payload expression for the inner value
-  let payload = match idl_type {
+  // Bool? uses -1 sentinel for None in MoonBit JS backend
+  match idl_type {
+    Primitive("boolean") =>
+      return "(self." +
+        field_name +
+        " === -1 ? undefined : self." +
+        field_name +
+        ")"
+    _ => ()
+  }
+  // String?, Int?, Double? use undefined/value representation → pass-through
+  if is_primitive_option_type(idl_type) {
+    return "self." + field_name
+  }
+  // Enum? uses undefined/index representation (NOT tagged)
+  match idl_type {
     Named(type_name) =>
       match lookup_enum(enum_map, type_name) {
-        Some(values) => gen_enum_array_lookup(values, "v._0")
-        None =>
-          if is_in_union_set(union_set, type_name) {
-            "v._0.to_js_value()"
-          } else {
-            "v._0"
-          }
+        Some(values) => return gen_optional_enum_field_expr(field_name, values)
+        None => ()
+      }
+    _ => ()
+  }
+  // Non-primitive, non-enum types use tagged representation - need IIFE unwrap
+  let payload = match idl_type {
+    Named(type_name) =>
+      // Not enum (handled above), check union
+      if is_in_union_set(union_set, type_name) {
+        "v._0.to_js_value()"
+      } else {
+        "v._0"
       }
     Nullable(Named(type_name)) =>
       match lookup_enum(enum_map, type_name) {
@@ -287,6 +322,23 @@ fn gen_optional_field_value_expr(
     _ => "v._0"
   }
   js_option_to_js(field_name, payload)
+}
+
+///|
+/// Generate JS expression for optional enum field (undefined/index representation)
+/// Example: gen_optional_enum_field_expr("endings", ["transparent", "native"]) =>
+///   "((() => { const v = self.endings; if (v === undefined) return undefined; return ['transparent', 'native'][v]; })())"
+fn gen_optional_enum_field_expr(
+  field_name : String,
+  values : Array[String],
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string("((() => { const v = self.")
+  result.write_string(field_name)
+  result.write_string("; if (v === undefined) return undefined; return ")
+  result.write_string(gen_enum_array_lookup(values, "v"))
+  result.write_string("; })())")
+  result.to_string()
 }
 
 ///|

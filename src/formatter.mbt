@@ -53,6 +53,7 @@ fn collect_defined_types(definitions : Array[Definition]) -> Array[String] {
       Enum(e) => Some(e.name)
       Typedef(t) => Some(t.name)
       CallbackInterface(cb) => Some(cb.name)
+      Namespace(ns) => Some(ns.name)
       _ => None
     }
   })
@@ -78,6 +79,8 @@ fn collect_referenced_types(definitions : Array[Definition]) -> Array[String] {
       Typedef(t) => collect_types_from_idl_type(t.idl_type, refs)
       Partial(p) =>
         p.members.iter().each(fn(mem) { collect_types_from_member(mem, refs) })
+      Namespace(ns) =>
+        ns.members.iter().each(fn(mem) { collect_types_from_member(mem, refs) })
       _ => ()
     }
   })
@@ -108,6 +111,13 @@ fn collect_types_from_member(
       collect_types_from_idl_type(m.value_type, refs)
     }
     Setlike(s) => collect_types_from_idl_type(s.value_type, refs)
+    Iterable(iter) => {
+      match iter.key_type {
+        Some(kt) => collect_types_from_idl_type(kt, refs)
+        None => ()
+      }
+      collect_types_from_idl_type(iter.value_type, refs)
+    }
   }
 }
 
@@ -151,6 +161,10 @@ pub fn collect_inline_unions(
         })
       Partial(p) =>
         p.members
+        .iter()
+        .each(fn(mem) { collect_inline_unions_from_member(mem, collector) })
+      Namespace(ns) =>
+        ns.members
         .iter()
         .each(fn(mem) { collect_inline_unions_from_member(mem, collector) })
       CallbackInterface(cb) => {
@@ -200,6 +214,13 @@ fn collect_inline_unions_from_member(
       collect_inline_unions_from_idl_type(m.value_type, collector)
     }
     Setlike(s) => collect_inline_unions_from_idl_type(s.value_type, collector)
+    Iterable(iter) => {
+      match iter.key_type {
+        Some(kt) => collect_inline_unions_from_idl_type(kt, collector)
+        None => ()
+      }
+      collect_inline_unions_from_idl_type(iter.value_type, collector)
+    }
     _ => ()
   }
 }
@@ -683,8 +704,29 @@ pub fn format_definitions(
           interfaces~,
           inheritance_map~,
           dict_map~,
+          union_typedef_map~,
         ),
       )
+      result.write_string("\n")
+    })
+  }
+
+  // Namespace section
+  let namespaces : Array[NamespaceDef] = definitions
+    .iter()
+    .filter_map(fn(def) {
+      match def {
+        Namespace(ns) => Some(ns)
+        _ => None
+      }
+    })
+    .collect()
+  if namespaces.length() > 0 {
+    result.write_string(gen_section_comment("Namespaces"))
+    namespaces
+    .iter()
+    .each(fn(ns) {
+      result.write_string(gen_namespace_binding(ns, enum_map, dict_map~))
       result.write_string("\n")
     })
   }
@@ -1099,10 +1141,32 @@ pub fn format_spec_output(
         interfaces=global_interfaces,
         inheritance_map=global_inheritance_map,
         dict_map=global_dict_map,
+        union_typedef_map~,
       ),
     )
     result.write_string("\n")
   })
+
+  // Namespace section
+  let spec_namespaces : Array[NamespaceDef] = definitions
+    .iter()
+    .filter_map(fn(def) {
+      match def {
+        Namespace(ns) => Some(ns)
+        _ => None
+      }
+    })
+    .collect()
+  if spec_namespaces.length() > 0 {
+    spec_namespaces
+    .iter()
+    .each(fn(ns) {
+      result.write_string(
+        gen_namespace_binding(ns, global_enum_map, dict_map=global_dict_map),
+      )
+      result.write_string("\n")
+    })
+  }
   let code = result.to_string()
   let code = normalize_indent(code)
   let code = normalize_blank_lines(code)

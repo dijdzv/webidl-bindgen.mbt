@@ -186,6 +186,21 @@ pub extern "js" fn is_required(obj : JsValue) -> Bool =
   #| (obj) => obj.required === true
 
 ///|
+/// Check if argument is variadic
+pub extern "js" fn is_variadic(obj : JsValue) -> Bool =
+  #| (obj) => obj.variadic === true
+
+///|
+/// Check if iterable is async
+pub extern "js" fn is_async(obj : JsValue) -> Bool =
+  #| (obj) => obj.async === true
+
+///|
+/// Get idlType array length for iterable
+pub extern "js" fn get_idl_type_array_length(obj : JsValue) -> Int =
+  #| (obj) => (obj.idlType && Array.isArray(obj.idlType)) ? obj.idlType.length : 0
+
+///|
 /// Get special property
 pub extern "js" fn get_special(obj : JsValue) -> String =
   #| (obj) => obj.special || ''
@@ -324,6 +339,7 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
           } else {
             Some(dv)
           },
+          variadic: is_variadic(js_arg),
         }
         args.push(arg)
         i = i + 1
@@ -374,6 +390,7 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
           } else {
             Some(dv)
           },
+          variadic: is_variadic(js_arg),
         }
         args.push(arg)
         i = i + 1
@@ -400,6 +417,33 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
         is_readonly: is_readonly(js_mem),
       }
       Setlike(setlike)
+    }
+    "iterable" | "async_iterable" => {
+      // iterable<V> or iterable<K, V>, or async iterable<K, V>
+      let types = get_maplike_types(js_mem)
+      let type_count = get_idl_type_array_length(js_mem)
+      // webidl2.js uses type "async_iterable" for async, "iterable" with async:false for sync
+      let is_async_iter = mem_type == "async_iterable" || is_async(js_mem)
+      if type_count >= 2 {
+        // iterable<K, V>
+        let key_type = convert_idl_type(get_maplike_type_at(types, 0))
+        let value_type = convert_idl_type(get_maplike_type_at(types, 1))
+        let iter_def : IterableDef = {
+          key_type: Some(key_type),
+          value_type,
+          is_async: is_async_iter,
+        }
+        Iterable(iter_def)
+      } else {
+        // iterable<V>
+        let value_type = convert_idl_type(get_maplike_type_at(types, 0))
+        let iter_def : IterableDef = {
+          key_type: None,
+          value_type,
+          is_async: is_async_iter,
+        }
+        Iterable(iter_def)
+      }
     }
     _ => {
       // Unknown member type, treat as operation with no-op
@@ -520,6 +564,7 @@ pub fn convert_to_definitions(result : JsValue) -> Array[Definition] {
                 } else {
                   Some(dv)
                 },
+                variadic: is_variadic(js_arg),
               }
               arguments.push(arg)
               k = k + 1
@@ -554,6 +599,7 @@ pub fn convert_to_definitions(result : JsValue) -> Array[Definition] {
             } else {
               Some(dv)
             },
+            variadic: is_variadic(js_arg),
           }
           arguments.push(arg)
           j = j + 1
@@ -612,6 +658,22 @@ pub fn convert_to_definitions(result : JsValue) -> Array[Definition] {
           includes: get_includes(item),
         }
         definitions.push(Includes(includes_def))
+      }
+      "namespace" => {
+        let members_array = get_members(item)
+        let members_len = js_array_length(members_array)
+        let ns_members : Array[InterfaceMember] = []
+        let mut j = 0
+        while j < members_len {
+          let js_mem : JsValue = js_array_get(members_array, j)
+          ns_members.push(convert_interface_member(js_mem))
+          j = j + 1
+        }
+        let ns_def : NamespaceDef = {
+          name: get_name(item),
+          members: ns_members,
+        }
+        definitions.push(Namespace(ns_def))
       }
       _ => () // Skip unknown types
     }

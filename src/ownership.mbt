@@ -12,6 +12,7 @@ fn get_definition_name(def : Definition) -> String {
     InterfaceMixin(m) => m.name
     CallbackInterface(cb) => cb.name
     Includes(_) => "" // Includes has no type name
+    Namespace(ns) => ns.name
   }
 }
 

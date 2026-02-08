@@ -48,6 +48,7 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
         // Merge or add mixin using helper
         merge_or_add_mixin(mixins, mix_def)
       Includes(incl) => includes_list.push(incl)
+      Namespace(_) => others.push(def)
     }
   })
 
@@ -261,6 +262,7 @@ fn get_member_name(mem : InterfaceMember) -> String {
     Constructor(_) => "" // Constructors don't have names
     Maplike(_) => "" // Maplike is a type-level feature, not a named member
     Setlike(_) => "" // Setlike is a type-level feature, not a named member
+    Iterable(_) => "" // Iterable is a type-level feature, not a named member
   }
 }
 

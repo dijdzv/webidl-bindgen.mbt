@@ -11,6 +11,14 @@ pub enum Definition {
   Typedef(TypedefDef)
   Partial(PartialDef)
   Includes(IncludesDef)
+  Namespace(NamespaceDef)
+}
+
+///|
+/// Namespace definition
+pub struct NamespaceDef {
+  name : String
+  members : Array[InterfaceMember]
 }
 
 ///|
@@ -55,6 +63,15 @@ pub enum InterfaceMember {
   Constructor(ConstructorDef)
   Maplike(MaplikeDef)
   Setlike(SetlikeDef)
+  Iterable(IterableDef)
+}
+
+///|
+/// Iterable definition (sync and async)
+pub struct IterableDef {
+  key_type : IdlType? // None for value-only iterable
+  value_type : IdlType
+  is_async : Bool
 }
 
 ///|
@@ -96,6 +113,7 @@ pub struct Argument {
   idl_type : IdlType
   optional : Bool
   default_value : String?
+  variadic : Bool
 }
 
 ///|
