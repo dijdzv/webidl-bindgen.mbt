@@ -309,10 +309,12 @@ fn convert_simple_type(type_name : String) -> IdlType {
     "long long" | "unsigned long long" => Primitive(type_name)
     "float" | "unrestricted float" | "double" | "unrestricted double" =>
       Primitive(type_name)
-    "DOMString" | "USVString" | "ByteString" => String
+    "DOMString" | "USVString" | "ByteString" | "CSSOMString" => String
     "undefined" | "void" => Void
     "any" => Any
     "" => Any
+    // Well-known types without formal typedef (same as web-sys)
+    "WindowProxy" => Named("Window")
     _ => Named(type_name)
   }
 }

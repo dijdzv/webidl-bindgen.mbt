@@ -219,6 +219,47 @@ pub fn gen_dictionary(
   result = result + dict.name
   result = result + "::to_js_ffi(self)\n"
   result = result + "}\n\n"
+
+  // Conversion function from JsValue (FFI implementation)
+  result = result + "extern \"js\" fn "
+  result = result + dict.name
+  result = result + "::from_js_ffi(value : JsValue) -> "
+  result = result + dict.name
+  result = result + " =\n"
+  result = result + "  #| (v) => ({\n"
+  result = dict.members
+    .iter()
+    .fold(init=(result, 0), fn(state, mem) {
+      let (acc, idx) = state
+      let moonbit_name = field_name_to_moonbit(mem.name)
+      let moonbit_type = mem.idl_type.to_moonbit_simple()
+      let is_nullable_type = not(mem.required) &&
+        ends_with_question(moonbit_type)
+      let value_expr = if is_nullable_type {
+        gen_from_js_nullable_field_expr(mem.idl_type, mem.name, enum_map)
+      } else if not(mem.required) {
+        gen_from_js_optional_field_expr(mem.idl_type, mem.name, enum_map)
+      } else {
+        gen_from_js_required_field_expr(mem.idl_type, mem.name, enum_map)
+      }
+      let comma = if idx < members_len - 1 { "," } else { "" }
+      (
+        acc + "  #|   " + moonbit_name + ": " + value_expr + comma + "\n",
+        idx + 1,
+      )
+    }).0
+  result = result + "  #| })\n\n"
+  // Public wrapper (callable from MoonBit code, survives DCE)
+  result = result + "/// Convert from JsValue\n"
+  result = result + "pub fn "
+  result = result + dict.name
+  result = result + "::from_js(value : JsValue) -> "
+  result = result + dict.name
+  result = result + " {\n"
+  result = result + "  "
+  result = result + dict.name
+  result = result + "::from_js_ffi(value)\n"
+  result = result + "}\n\n"
   result
 }
 
@@ -516,7 +557,7 @@ pub fn gen_enum(enum_def : EnumDef) -> String {
       let variant = to_pascal_case(value)
       acc + "  " + variant + "\n"
     })
-  result = result + "}\n\n"
+  result = result + "} derive(Eq, Show)\n\n"
 
   // Conversion function to string
   result = result + "/// Convert to string value\n"
@@ -1117,4 +1158,100 @@ fn get_js_type_check(
     // Void, Any, Promise, Union cannot be checked
     _ => ""
   }
+}
+
+// =============================================================================
+// from_js field expression generators (JS → MoonBit)
+// =============================================================================
+
+///|
+/// Generate JS expression for required field in from_js
+/// Reverse of gen_field_value_expr: JS value → MoonBit value
+fn gen_from_js_required_field_expr(
+  idl_type : IdlType,
+  js_field_name : String,
+  enum_map : Array[(String, Array[String])],
+) -> String {
+  match idl_type {
+    Named(type_name) =>
+      match lookup_enum(enum_map, type_name) {
+        // Enum: string → indexOf
+        Some(values) => gen_enum_index_of_expr(values, "v." + js_field_name)
+        None => "v." + js_field_name
+      }
+    _ => "v." + js_field_name
+  }
+}
+
+///|
+/// Generate JS expression for optional (Option[T]) field in from_js
+/// Reverse of gen_optional_field_value_expr
+/// JS representations → MoonBit Option:
+///   - String?/Int?/Double?: undefined→None, value→Some  (pass-through)
+///   - Bool?:      undefined→-1 (sentinel for None)
+///   - Enum?:      undefined→None, string→indexOf
+///   - Named?:     undefined→{$tag:0}, value→{$tag:1,_0:v}
+fn gen_from_js_optional_field_expr(
+  idl_type : IdlType,
+  js_field_name : String,
+  enum_map : Array[(String, Array[String])],
+) -> String {
+  let v = "v." + js_field_name
+  // Bool?: undefined → -1 sentinel
+  match idl_type {
+    Primitive("boolean") => return "(" + v + " === undefined ? -1 : " + v + ")"
+    _ => ()
+  }
+  // String?, Int?, Double?: pass-through (undefined = None)
+  if is_primitive_option_type(idl_type) {
+    return v
+  }
+  // Enum?: undefined → undefined (None), string → indexOf
+  match idl_type {
+    Named(type_name) =>
+      match lookup_enum(enum_map, type_name) {
+        Some(values) =>
+          return "(" +
+            v +
+            " === undefined ? undefined : " +
+            gen_enum_index_of_expr(values, v) +
+            ")"
+        None => ()
+      }
+    _ => ()
+  }
+  // Named? (interface, union): wrap in tagged Option
+  "(" + v + " === undefined ? { $tag: 0 } : { $tag: 1, _0: " + v + " })"
+}
+
+///|
+/// Generate JS expression for Nullable[T] field in from_js
+/// Reverse of gen_nullable_type_field_expr / gen_nullable_field_expr
+/// JS: undefined → {$tag:0}, null → {$tag:1}, value → {$tag:2, _0: value}
+fn gen_from_js_nullable_field_expr(
+  idl_type : IdlType,
+  js_field_name : String,
+  enum_map : Array[(String, Array[String])],
+) -> String {
+  let v = "v." + js_field_name
+  let inner_type = match idl_type {
+    Nullable(inner) => inner
+    _ => idl_type
+  }
+  // Payload expression depends on inner type
+  let payload = match inner_type {
+    Named(type_name) =>
+      match lookup_enum(enum_map, type_name) {
+        Some(values) => gen_enum_index_of_expr(values, v)
+        None => v
+      }
+    _ => v
+  }
+  "(" +
+  v +
+  " === undefined ? { $tag: 0 } : " +
+  v +
+  " === null ? { $tag: 1 } : { $tag: 2, _0: " +
+  payload +
+  " })"
 }

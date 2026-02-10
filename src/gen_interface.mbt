@@ -203,6 +203,7 @@ pub fn gen_static_operation_with_suffix(
     "(" +
     js_call_args.to_string() +
     ")"
+  let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
   let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)
@@ -307,6 +308,7 @@ pub fn gen_static_operation_with_arg_count(
     "(" +
     js_call_args.to_string() +
     ")"
+  let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
   let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)
@@ -517,6 +519,7 @@ pub fn gen_operation(
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
+  let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
   let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)
@@ -834,6 +837,7 @@ pub fn gen_operation_with_arg_count(
   result.write_string("  #| (")
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
+  let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
   let wrapped = wrap_return_expr(js_expr, op.return_type)
   result.write_string(") => ")
   result.write_string(wrapped)

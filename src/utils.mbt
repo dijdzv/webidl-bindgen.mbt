@@ -226,7 +226,7 @@ pub fn wrap_nullable_return(js_expr : String, return_type : IdlType) -> String {
 pub fn js_option_to_js(field_name : String, payload_expr : String) -> String {
   "((() => { const v = self." +
   field_name +
-  "; if (v.$tag !== 1) return undefined; return " +
+  "; if (v === undefined || v.$tag !== 1) return undefined; return " +
   payload_expr +
   "; })())"
 }
@@ -247,9 +247,9 @@ pub fn js_nullable_check(var_name : String) -> String {
 
 ///|
 /// Get JS payload expression from Nullable Value variant
-/// Example: js_nullable_payload("v") => "v.$0"
+/// Example: js_nullable_payload("v") => "v._0"
 pub fn js_nullable_payload(var_name : String) -> String {
-  var_name + ".$0"
+  var_name + "._0"
 }
 
 ///|
@@ -264,15 +264,15 @@ pub fn unwrap_option_named_param(param_name : String) -> String {
 
 ///|
 /// Unwrap a Nullable named parameter for JS call
-/// MoonBit Nullable enum: {$tag:0}=Undefined, {$tag:1}=Null, {$tag:2,$0:v}=Value
+/// MoonBit Nullable enum: {$tag:0}=Undefined, {$tag:1}=Null, {$tag:2,_0:v}=Value
 /// Example: unwrap_nullable_named_param("listener") =>
-///   "(listener.$tag === 2 ? listener.$0 : listener.$tag === 1 ? null : undefined)"
+///   "(listener.$tag === 2 ? listener._0 : listener.$tag === 1 ? null : undefined)"
 pub fn unwrap_nullable_named_param(param_name : String) -> String {
   "(" +
   param_name +
   ".$tag === 2 ? " +
   param_name +
-  ".$0 : " +
+  "._0 : " +
   param_name +
   ".$tag === 1 ? null : undefined)"
 }

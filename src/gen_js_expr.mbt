@@ -159,6 +159,86 @@ fn gen_dict_wrapper(
 }
 
 ///|
+/// Check if return type is Promise[DictionaryType]
+fn returns_promise_dict(
+  return_type : IdlType,
+  dict_map : Array[(String, DictionaryDef)],
+) -> Bool {
+  match return_type {
+    Promise(Named(type_name)) => not(lookup_dict(dict_map, type_name) is None)
+    _ => false
+  }
+}
+
+///|
+/// Get dictionary name from Promise[Dict] return type
+fn get_promise_dict_name(return_type : IdlType) -> String {
+  match return_type {
+    Promise(Named(type_name)) => type_name
+    _ => ""
+  }
+}
+
+///|
+/// Wrap a JS promise expression with `.then(v => ({...}))` to convert
+/// the resolved JS object to a MoonBit struct.
+/// Returns a multiline string with `#|` prefixes for each field line.
+fn wrap_promise_dict_return(
+  js_expr : String,
+  dict : DictionaryDef,
+  enum_map : Array[(String, Array[String])],
+) -> String {
+  let result = StringBuilder::new()
+  result.write_string(js_expr)
+  result.write_string(".then(v => ({\n")
+  let members_len = dict.members.length()
+  for i = 0; i < members_len; i = i + 1 {
+    let mem = dict.members[i]
+    let moonbit_name = field_name_to_moonbit(mem.name)
+    let moonbit_type = mem.idl_type.to_moonbit_simple()
+    let is_nullable_type = not(mem.required) &&
+      ends_with_question(moonbit_type)
+    let value_expr = if is_nullable_type {
+      gen_from_js_nullable_field_expr(mem.idl_type, mem.name, enum_map)
+    } else if not(mem.required) {
+      gen_from_js_optional_field_expr(mem.idl_type, mem.name, enum_map)
+    } else {
+      gen_from_js_required_field_expr(mem.idl_type, mem.name, enum_map)
+    }
+    result.write_string("  #|   ")
+    result.write_string(moonbit_name)
+    result.write_string(": ")
+    result.write_string(value_expr)
+    if i < members_len - 1 {
+      result.write_string(",")
+    }
+    result.write_string("\n")
+  }
+  result.write_string("  #| }))")
+  result.to_string()
+}
+
+///|
+/// If return type is Promise[Dict], wrap js_expr with .then() conversion.
+/// Otherwise return js_expr unchanged.
+fn match_promise_dict(
+  js_expr : String,
+  return_type : IdlType,
+  dict_map : Array[(String, DictionaryDef)],
+  enum_map : Array[(String, Array[String])],
+) -> String {
+  if returns_promise_dict(return_type, dict_map) {
+    let dict_name = get_promise_dict_name(return_type)
+    match lookup_dict(dict_map, dict_name) {
+      Some(dict) => wrap_promise_dict_return(js_expr, dict, enum_map)
+      None => js_expr
+    }
+  } else {
+    js_expr
+  }
+}
+
+///|
 /// Remove first character from string
 fn remove_leading_char(s : String) -> String {
   let chars = s.to_array()
