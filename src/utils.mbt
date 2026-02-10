@@ -24,10 +24,22 @@ pub fn remove_trailing_question(s : String) -> String {
 }
 
 ///|
+/// Pre-process identifier before snake_case conversion.
+/// Handles digit+uppercase patterns like "2D" → "_2d" (same as web-sys's fix_ident).
+fn fix_ident(name : String) -> String {
+  let result = name
+    .replace(old="1D", new="_1d")
+    .replace(old="2D", new="_2d")
+    .replace(old="3D", new="_3d")
+  result
+}
+
+///|
 /// Convert to snake_case (handles acronyms correctly)
 /// Example: UIEvent -> ui_event, HTMLElement -> html_element, XMLHttpRequest -> xml_http_request
+/// Example: CanvasRenderingContext2D -> canvas_rendering_context_2d
 pub fn to_snake_case(name : String) -> String {
-  let chars = name.to_array()
+  let chars = fix_ident(name).to_array()
   let len = chars.length()
   if len == 0 {
     return ""

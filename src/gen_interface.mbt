@@ -633,7 +633,7 @@ pub fn group_operations_by_name(
 /// - "_with_xxx_and_yyy" style suffix (empty string for base version)
 ///
 /// # Example
-/// ```moonbit
+/// ```moonbit nocheck
 /// // base_args: [image, dx, dy], full_args: [image, dx, dy]
 /// // → ""
 ///
@@ -699,7 +699,7 @@ fn arg_type_to_snake_case(arg_type : IdlType) -> String {
 /// - "_with_xxx_and_yyy" style suffix (empty string if no arguments)
 ///
 /// # Example
-/// ```moonbit
+/// ```moonbit nocheck
 /// // args: [name: String]
 /// // → "_with_name"
 ///

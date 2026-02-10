@@ -411,6 +411,20 @@ pub fn gen_file_header_with_exclude(
   result.write_string("  Value(T)\n")
   result.write_string("}\n\n")
 
+  // try_catch helper for exception handling
+  result.write_string(
+    "/// Run a function and catch any JavaScript exception.\n",
+  )
+  result.write_string(
+    "/// Returns empty string on success, error message on exception.\n",
+  )
+  result.write_string(
+    "pub extern \"js\" fn try_catch(f : () -> Unit) -> String =\n",
+  )
+  result.write_string(
+    "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
+  )
+
   // Output external types by category (only output header if types exist)
   ignore(
     external_header_types
@@ -900,6 +914,20 @@ pub fn gen_shared_types_with_externals(
   result.write_string("  Null\n")
   result.write_string("  Value(T)\n")
   result.write_string("}\n\n")
+
+  // try_catch helper for exception handling
+  result.write_string(
+    "/// Run a function and catch any JavaScript exception.\n",
+  )
+  result.write_string(
+    "/// Returns empty string on success, error message on exception.\n",
+  )
+  result.write_string(
+    "pub extern \"js\" fn try_catch(f : () -> Unit) -> String =\n",
+  )
+  result.write_string(
+    "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
+  )
 
   // External type declarations
   if external_types.length() > 0 {

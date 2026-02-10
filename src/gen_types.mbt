@@ -755,6 +755,26 @@ pub fn gen_typedef(
             acc
           }
         })
+
+      // bind_as_* convenience functions (Option[Union] -> Option[ConcreteType])
+      result = members
+        .iter()
+        .fold(init=result, fn(acc, mem) {
+          let bind = gen_union_bind_as(
+            typedef_def.name,
+            mem,
+            dictionary_names,
+            union_typedef_map~,
+            enum_names~,
+            primitive_typedef_map~,
+            callback_interface_names~,
+          )
+          if bind != "" {
+            acc + bind
+          } else {
+            acc
+          }
+        })
     }
     Promise(inner) =>
       // If Union is inside Promise, generate Union type definition first
@@ -882,24 +902,7 @@ fn get_factory_name(idl_type : IdlType) -> String {
 ///|
 /// Convert type name to snake_case (for factory function names)
 fn to_snake_case_factory(name : String) -> String {
-  let result = StringBuilder::new()
-  ignore(
-    name
-    .iter()
-    .fold(init=true, fn(first, c) {
-      if c >= 'A' && c <= 'Z' {
-        if not(first) {
-          result.write_char('_')
-        }
-        // Convert uppercase to lowercase
-        result.write_char((c.to_int() + 32).unsafe_to_char())
-      } else {
-        result.write_char(c)
-      }
-      false
-    }),
-  )
-  result.to_string()
+  to_snake_case(name)
 }
 
 ///|
@@ -1001,6 +1004,58 @@ fn gen_union_as_cast(
     result.write_string(js_none())
   }
   result.write_string("\n\n")
+  result.to_string()
+}
+
+///|
+/// Generate bind_as_* convenience function for Union type.
+/// Flattens Option[Union] -> Option[ConcreteType] in one step.
+fn gen_union_bind_as(
+  union_name : String,
+  member_type : IdlType,
+  dictionary_names : Array[String],
+  union_typedef_map? : Array[(String, Array[IdlType])] = [],
+  enum_names? : Array[String] = [],
+  primitive_typedef_map? : Array[(String, IdlType)] = [],
+  callback_interface_names? : Array[String] = [],
+) -> String {
+  let moonbit_type = member_type.to_moonbit_simple()
+  let factory_name = get_factory_name(member_type)
+  let js_check = get_js_type_check(
+    member_type,
+    dictionary_names,
+    union_typedef_map~,
+    enum_names~,
+    primitive_typedef_map~,
+    callback_interface_names~,
+  )
+
+  // Skip JsValue type and types that cannot be checked
+  if moonbit_type == "JsValue" || factory_name == "" || js_check == "" {
+    return ""
+  }
+  let result = StringBuilder::new()
+  result.write_string("/// Flatten Option[")
+  result.write_string(union_name)
+  result.write_string("] to ")
+  result.write_string(moonbit_type)
+  result.write_string("?\n")
+  result.write_string("pub fn ")
+  result.write_string(union_name)
+  result.write_string("::bind_as_")
+  result.write_string(factory_name)
+  result.write_string("(value : ")
+  result.write_string(union_name)
+  result.write_string("?) -> ")
+  result.write_string(moonbit_type)
+  result.write_string("? {\n")
+  result.write_string("  match value {\n")
+  result.write_string("    Some(v) => v.as_")
+  result.write_string(factory_name)
+  result.write_string("()\n")
+  result.write_string("    None => None\n")
+  result.write_string("  }\n")
+  result.write_string("}\n\n")
   result.to_string()
 }
 

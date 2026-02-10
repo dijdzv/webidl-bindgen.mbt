@@ -196,8 +196,7 @@ fn wrap_promise_dict_return(
     let mem = dict.members[i]
     let moonbit_name = field_name_to_moonbit(mem.name)
     let moonbit_type = mem.idl_type.to_moonbit_simple()
-    let is_nullable_type = not(mem.required) &&
-      ends_with_question(moonbit_type)
+    let is_nullable_type = not(mem.required) && ends_with_question(moonbit_type)
     let value_expr = if is_nullable_type {
       gen_from_js_nullable_field_expr(mem.idl_type, mem.name, enum_map)
     } else if not(mem.required) {
