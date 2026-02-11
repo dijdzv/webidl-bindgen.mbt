@@ -87,7 +87,7 @@ pub extern "js" fn get_union_types(idl_type : JsValue) -> JsArray =
 ///|
 /// Check if idlType is a sequence type
 pub extern "js" fn is_sequence_type(idl_type : JsValue) -> Bool =
-  #| (t) => t && t.generic === 'sequence'
+  #| (t) => t && (t.generic === 'sequence' || t.generic === 'FrozenArray' || t.generic === 'ObservableArray')
 
 ///|
 /// Get inner type from sequence type
