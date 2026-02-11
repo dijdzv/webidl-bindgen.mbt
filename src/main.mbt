@@ -87,7 +87,7 @@ fn parse_args() -> CliArgs {
       if i < argc {
         output = get_argv_string(i)
       }
-    } else if input == "" && not(arg.has_prefix("--")) {
+    } else if input == "" && !arg.has_prefix("--") {
       // Positional argument as input
       input = arg
     }
@@ -215,7 +215,7 @@ async fn main {
     let error_count = results
       .iter()
       .fold(init=0, fn(count, result) {
-        if not(result.success) {
+        if !result.success {
           println("Warning: " + result.error_message)
           count + 1
         } else {
@@ -293,7 +293,7 @@ async fn main {
       .iter()
       .each(fn(entry) {
         let (name, _) = entry
-        if not(global_union_set.contains(name)) {
+        if !global_union_set.contains(name) {
           global_union_set.push(name)
         }
       })
@@ -428,7 +428,7 @@ async fn main {
     // --spec mode: fetch WebIDL from @webref/idl
     println("Fetching spec: " + args.spec)
     let specs = list_all_specs()
-    if not(spec_exists(specs, args.spec)) {
+    if !spec_exists(specs, args.spec) {
       println("Error: Spec '" + args.spec + "' not found in @webref/idl")
       exit_process(1)
       return
@@ -451,7 +451,7 @@ async fn main {
   // Parse WebIDL
   println("Parsing WebIDL...")
   let parse_result = parse_webidl_raw(source)
-  if not(is_parse_success(parse_result)) {
+  if !is_parse_success(parse_result) {
     let error = get_parse_error(parse_result)
     println("Parse error: " + error)
     exit_process(1)

@@ -64,7 +64,7 @@ pub fn to_snake_case(name : String) -> String {
       // Conditions to insert underscore:
       // 1. Not at the beginning AND
       // 2. (previous is lowercase OR (previous is uppercase and next is lowercase))
-      if i > 0 && (not(prev_is_upper) || (prev_is_upper && next_is_lower)) {
+      if i > 0 && (!prev_is_upper || (prev_is_upper && next_is_lower)) {
         result.write_char('_')
       }
       // Convert uppercase to lowercase
@@ -188,11 +188,7 @@ pub fn escape_reserved(name : String) -> String {
 /// Check if an IdlType uses the primitive Option representation (undefined/value)
 /// vs the tagged representation ({ $tag: 0/1 })
 pub fn is_primitive_option_type(inner_type : IdlType) -> Bool {
-  match inner_type {
-    String => true
-    Primitive(_) => true
-    _ => false
-  }
+  inner_type is (String | Primitive(_))
 }
 
 ///|
@@ -292,10 +288,7 @@ pub fn unwrap_nullable_named_param(param_name : String) -> String {
 ///|
 /// Check if an IdlType is Int64 (long long / unsigned long long)
 pub fn is_int64_type(idl_type : IdlType) -> Bool {
-  match idl_type {
-    Primitive("long long") | Primitive("unsigned long long") => true
-    _ => false
-  }
+  idl_type is (Primitive("long long") | Primitive("unsigned long long"))
 }
 
 ///|

@@ -290,7 +290,7 @@ pub fn generate_union_name(members : Array[IdlType]) -> String {
     parts
     .iter()
     .fold(init=true, fn(first, part) {
-      if not(first) {
+      if !first {
         result.write_string("Or")
       }
       result.write_string(part)

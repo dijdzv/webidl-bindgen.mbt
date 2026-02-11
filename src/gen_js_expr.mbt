@@ -9,14 +9,14 @@ fn gen_js_call_arg(
   enum_map : Array[(String, Array[String])],
   dict_map : Array[(String, DictionaryDef)],
 ) -> String {
-  let arg_name = escape_reserved(to_snake_case(arg.name))
+  let arg_name = arg.name |> to_snake_case |> escape_reserved
   match arg.idl_type {
     Named(type_name) =>
       match lookup_enum(enum_map, type_name) {
         Some(values) => gen_enum_array_lookup(values, arg_name)
         None =>
           // Dictionary type: pass through (wrapper handles .to_js() conversion)
-          if not(lookup_dict(dict_map, type_name) is None) {
+          if !(lookup_dict(dict_map, type_name) is None) {
             arg_name
           } else if is_int64_type(arg.idl_type) {
             int64_param_to_js(arg_name)
@@ -64,7 +64,7 @@ fn has_dict_args(
   for i = 0; i < arg_count; i = i + 1 {
     match args[i].idl_type {
       Named(type_name) =>
-        if not(lookup_dict(dict_map, type_name) is None) {
+        if !(lookup_dict(dict_map, type_name) is None) {
           return true
         }
       _ => ()
@@ -81,7 +81,7 @@ fn gen_ffi_arg_type(
 ) -> String {
   match arg.idl_type {
     Named(type_name) =>
-      if not(lookup_dict(dict_map, type_name) is None) {
+      if !(lookup_dict(dict_map, type_name) is None) {
         "JsValue"
       } else {
         idl_type_to_moonbit(arg.idl_type)
@@ -96,10 +96,10 @@ fn gen_wrapper_call_arg(
   arg : Argument,
   dict_map : Array[(String, DictionaryDef)],
 ) -> String {
-  let arg_name = escape_reserved(to_snake_case(arg.name))
+  let arg_name = arg.name |> to_snake_case |> escape_reserved
   match arg.idl_type {
     Named(type_name) =>
-      if not(lookup_dict(dict_map, type_name) is None) {
+      if !(lookup_dict(dict_map, type_name) is None) {
         arg_name + ".to_js()"
       } else {
         arg_name
@@ -130,11 +130,11 @@ fn gen_dict_wrapper(
     first = false
   }
   for i = 0; i < arg_count; i = i + 1 {
-    if not(first) {
+    if !first {
       result.write_string(", ")
     }
     first = false
-    result.write_string(escape_reserved(to_snake_case(args[i].name)))
+    result.write_string(args[i].name |> to_snake_case |> escape_reserved)
     result.write_string(" : ")
     result.write_string(idl_type_to_moonbit(args[i].idl_type))
   }
@@ -149,7 +149,7 @@ fn gen_dict_wrapper(
     first = false
   }
   for i = 0; i < arg_count; i = i + 1 {
-    if not(first) {
+    if !first {
       result.write_string(", ")
     }
     first = false
@@ -165,7 +165,7 @@ fn returns_promise_dict(
   dict_map : Array[(String, DictionaryDef)],
 ) -> Bool {
   match return_type {
-    Promise(Named(type_name)) => not(lookup_dict(dict_map, type_name) is None)
+    Promise(Named(type_name)) => !(lookup_dict(dict_map, type_name) is None)
     _ => false
   }
 }
@@ -196,10 +196,10 @@ fn wrap_promise_dict_return(
     let mem = dict.members[i]
     let moonbit_name = field_name_to_moonbit(mem.name)
     let moonbit_type = mem.idl_type.to_moonbit_simple()
-    let is_nullable_type = not(mem.required) && ends_with_question(moonbit_type)
+    let is_nullable_type = !mem.required && ends_with_question(moonbit_type)
     let value_expr = if is_nullable_type {
       gen_from_js_nullable_field_expr(mem.idl_type, mem.name, enum_map)
-    } else if not(mem.required) {
+    } else if !mem.required {
       gen_from_js_optional_field_expr(mem.idl_type, mem.name, enum_map)
     } else {
       gen_from_js_required_field_expr(mem.idl_type, mem.name, enum_map)

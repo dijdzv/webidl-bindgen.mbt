@@ -4,14 +4,8 @@
 /// Check if a dictionary member has a safe default value
 /// Safe defaults: Primitive, String, Nullable, Void, Sequence, or has explicit default_value
 fn has_safe_default(mem : DictionaryMember) -> Bool {
-  match mem.default_value {
-    Some(_) => true
-    None =>
-      match mem.idl_type {
-        Primitive(_) | String | Nullable(_) | Void | Sequence(_) => true
-        Named(_) | Any | Promise(_) | Union(_) => false
-      }
-  }
+  mem.default_value is Some(_) ||
+  mem.idl_type is (Primitive(_) | String | Nullable(_) | Void | Sequence(_))
 }
 
 ///|
@@ -35,9 +29,7 @@ fn get_safe_default_value(mem : DictionaryMember) -> String {
 ///|
 /// Check if dictionary has required fields without safe defaults
 fn has_required_fields_without_safe_default(dict : DictionaryDef) -> Bool {
-  dict.members
-  .iter()
-  .any(fn(mem) { mem.required && not(has_safe_default(mem)) })
+  dict.members.iter().any(fn(mem) { mem.required && !has_safe_default(mem) })
 }
 
 ///|
@@ -66,7 +58,7 @@ pub fn gen_dictionary(
     .fold(init=result, fn(acc, mem) {
       let moonbit_type = mem.idl_type.to_moonbit_simple()
       // Handle optional fields
-      let type_str = if not(mem.required) {
+      let type_str = if !mem.required {
         // For double nullable (type already ends with ?), convert to Nullable[T]
         if ends_with_question(moonbit_type) {
           let base_type = remove_trailing_question(moonbit_type)
@@ -96,8 +88,8 @@ pub fn gen_dictionary(
     dict.members
     .iter()
     .each(fn(mem) {
-      if mem.required && not(has_safe_default(mem)) {
-        if not(first_arg) {
+      if mem.required && !has_safe_default(mem) {
+        if !first_arg {
           result = result + ", "
         }
         result = result +
@@ -116,7 +108,7 @@ pub fn gen_dictionary(
     result = dict.members
       .iter()
       .fold(init=result, fn(acc, mem) {
-        let value = if not(mem.required) {
+        let value = if !mem.required {
           // For Nullable[T] type, use Nullable::Undefined
           let moonbit_type = mem.idl_type.to_moonbit_simple()
           if ends_with_question(moonbit_type) {
@@ -151,7 +143,7 @@ pub fn gen_dictionary(
     result = dict.members
       .iter()
       .fold(init=result, fn(acc, mem) {
-        let value = if not(mem.required) {
+        let value = if !mem.required {
           let moonbit_type = mem.idl_type.to_moonbit_simple()
           if ends_with_question(moonbit_type) {
             "Nullable::Undefined"
@@ -182,8 +174,7 @@ pub fn gen_dictionary(
       let moonbit_name = field_name_to_moonbit(mem.name)
       // Check if field is Nullable[T] type
       let moonbit_type = mem.idl_type.to_moonbit_simple()
-      let is_nullable_type = not(mem.required) &&
-        ends_with_question(moonbit_type)
+      let is_nullable_type = !mem.required && ends_with_question(moonbit_type)
       let value_expr = if is_nullable_type {
         // For Nullable[T] fields, generate special JS expression
         gen_nullable_type_field_expr(
@@ -192,7 +183,7 @@ pub fn gen_dictionary(
           enum_map,
           union_set,
         )
-      } else if not(mem.required) {
+      } else if !mem.required {
         // Optional field (Option[T]) - explicit conversion
         gen_optional_field_value_expr(
           mem.idl_type,
@@ -233,11 +224,10 @@ pub fn gen_dictionary(
       let (acc, idx) = state
       let moonbit_name = field_name_to_moonbit(mem.name)
       let moonbit_type = mem.idl_type.to_moonbit_simple()
-      let is_nullable_type = not(mem.required) &&
-        ends_with_question(moonbit_type)
+      let is_nullable_type = !mem.required && ends_with_question(moonbit_type)
       let value_expr = if is_nullable_type {
         gen_from_js_nullable_field_expr(mem.idl_type, mem.name, enum_map)
-      } else if not(mem.required) {
+      } else if !mem.required {
         gen_from_js_optional_field_expr(mem.idl_type, mem.name, enum_map)
       } else {
         gen_from_js_required_field_expr(mem.idl_type, mem.name, enum_map)
@@ -425,7 +415,7 @@ fn gen_nullable_field_expr(
             values
             .iter()
             .fold(init=true, fn(first, v) {
-              if not(first) {
+              if !first {
                 result.write_string(", ")
               }
               result.write_string("'")
@@ -483,7 +473,7 @@ fn gen_nullable_type_field_expr(
             values
             .iter()
             .fold(init=true, fn(first, v) {
-              if not(first) {
+              if !first {
                 result.write_string(", ")
               }
               result.write_string("'")
@@ -679,7 +669,7 @@ pub fn gen_typedef(
     Promise(Union(members)) => members.length() > 1
     _ => false
   }
-  if not(skip_initial_comment) {
+  if !skip_initial_comment {
     // Segment marker
     result = result + "///|\n"
 
@@ -931,22 +921,22 @@ fn gen_union_is_check(
   if moonbit_type == "JsValue" || factory_name == "" || js_check == "" {
     return ""
   }
-  let result = StringBuilder::new()
-  result.write_string("/// Check if this ")
-  result.write_string(union_name)
-  result.write_string(" is ")
-  result.write_string(moonbit_type)
-  result.write_string("\n")
-  result.write_string("pub extern \"js\" fn ")
-  result.write_string(union_name)
-  result.write_string("::is_")
-  result.write_string(factory_name)
-  result.write_string("(self : ")
-  result.write_string(union_name)
-  result.write_string(") -> Bool =\n  #| (self) => ")
-  result.write_string(js_check)
-  result.write_string("\n\n")
-  result.to_string()
+  StringBuilder::new()
+  ..write_string("/// Check if this ")
+  ..write_string(union_name)
+  ..write_string(" is ")
+  ..write_string(moonbit_type)
+  ..write_string("\n")
+  ..write_string("pub extern \"js\" fn ")
+  ..write_string(union_name)
+  ..write_string("::is_")
+  ..write_string(factory_name)
+  ..write_string("(self : ")
+  ..write_string(union_name)
+  ..write_string(") -> Bool =\n  #| (self) => ")
+  ..write_string(js_check)
+  ..write_string("\n\n")
+  .to_string()
 }
 
 ///|
@@ -1034,29 +1024,29 @@ fn gen_union_bind_as(
   if moonbit_type == "JsValue" || factory_name == "" || js_check == "" {
     return ""
   }
-  let result = StringBuilder::new()
-  result.write_string("/// Flatten Option[")
-  result.write_string(union_name)
-  result.write_string("] to ")
-  result.write_string(moonbit_type)
-  result.write_string("?\n")
-  result.write_string("pub fn ")
-  result.write_string(union_name)
-  result.write_string("::bind_as_")
-  result.write_string(factory_name)
-  result.write_string("(value : ")
-  result.write_string(union_name)
-  result.write_string("?) -> ")
-  result.write_string(moonbit_type)
-  result.write_string("? {\n")
-  result.write_string("  match value {\n")
-  result.write_string("    Some(v) => v.as_")
-  result.write_string(factory_name)
-  result.write_string("()\n")
-  result.write_string("    None => None\n")
-  result.write_string("  }\n")
-  result.write_string("}\n\n")
-  result.to_string()
+  StringBuilder::new()
+  ..write_string("/// Flatten Option[")
+  ..write_string(union_name)
+  ..write_string("] to ")
+  ..write_string(moonbit_type)
+  ..write_string("?\n")
+  ..write_string("pub fn ")
+  ..write_string(union_name)
+  ..write_string("::bind_as_")
+  ..write_string(factory_name)
+  ..write_string("(value : ")
+  ..write_string(union_name)
+  ..write_string("?) -> ")
+  ..write_string(moonbit_type)
+  ..write_string("? {\n")
+  ..write_string("  match value {\n")
+  ..write_string("    Some(v) => v.as_")
+  ..write_string(factory_name)
+  ..write_string("()\n")
+  ..write_string("    None => None\n")
+  ..write_string("  }\n")
+  ..write_string("}\n\n")
+  .to_string()
 }
 
 ///|

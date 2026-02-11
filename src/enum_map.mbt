@@ -29,7 +29,7 @@ pub fn gen_enum_array_lookup(
     values
     .iter()
     .fold(init=true, fn(first, v) {
-      if not(first) {
+      if !first {
         result.write_string(", ")
       }
       result.write_string("'")
@@ -58,7 +58,7 @@ pub fn gen_enum_index_of_expr(
     values
     .iter()
     .fold(init=true, fn(first, v) {
-      if not(first) {
+      if !first {
         result.write_string(", ")
       }
       result.write_string("'")
@@ -88,7 +88,7 @@ pub fn gen_nullable_enum_array_lookup(
     values
     .iter()
     .fold(init=true, fn(first, v) {
-      if not(first) {
+      if !first {
         result.write_string(", ")
       }
       result.write_string("'")

@@ -11,7 +11,7 @@ pub fn gen_async_iterable(
   let method_names = ["keys", "values", "entries"]
   for i = 0; i < method_names.length(); i = i + 1 {
     let name = method_names[i]
-    if not(generated_methods.contains(name)) {
+    if !generated_methods.contains(name) {
       generated_methods.push(name)
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -39,7 +39,7 @@ pub fn gen_sync_iterable(
   let method_names = ["keys", "values", "entries"]
   for i = 0; i < method_names.length(); i = i + 1 {
     let name = method_names[i]
-    if not(generated_methods.contains(name)) {
+    if !generated_methods.contains(name) {
       generated_methods.push(name)
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -54,7 +54,7 @@ pub fn gen_sync_iterable(
     }
   }
   // forEach
-  if not(generated_methods.contains("for_each")) {
+  if !generated_methods.contains("for_each") {
     generated_methods.push("for_each")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -80,7 +80,7 @@ fn gen_maplike_methods(
   let value_type = idl_type_to_moonbit(maplike.value_type)
 
   // get(key) -> value?
-  if not(generated_methods.contains("get")) {
+  if !generated_methods.contains("get") {
     generated_methods.push("get")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -96,7 +96,7 @@ fn gen_maplike_methods(
   }
 
   // has(key) -> Bool
-  if not(generated_methods.contains("has")) {
+  if !generated_methods.contains("has") {
     generated_methods.push("has")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -109,9 +109,9 @@ fn gen_maplike_methods(
   }
 
   // If not readonly, add set/delete/clear
-  if not(maplike.is_readonly) {
+  if !maplike.is_readonly {
     // set(key, value) -> Unit
-    if not(generated_methods.contains("set")) {
+    if !generated_methods.contains("set") {
       generated_methods.push("set")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -128,7 +128,7 @@ fn gen_maplike_methods(
     }
 
     // delete(key) -> Bool
-    if not(generated_methods.contains("delete")) {
+    if !generated_methods.contains("delete") {
       generated_methods.push("delete")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -141,7 +141,7 @@ fn gen_maplike_methods(
     }
 
     // clear() -> Unit
-    if not(generated_methods.contains("clear")) {
+    if !generated_methods.contains("clear") {
       generated_methods.push("clear")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -165,7 +165,7 @@ fn gen_setlike_methods(
   let value_type = idl_type_to_moonbit(setlike.value_type)
 
   // has(value) -> Bool
-  if not(generated_methods.contains("has")) {
+  if !generated_methods.contains("has") {
     generated_methods.push("has")
     result.write_string("pub extern \"js\" fn ")
     result.write_string(interface_name)
@@ -178,9 +178,9 @@ fn gen_setlike_methods(
   }
 
   // If not readonly, add add/delete/clear
-  if not(setlike.is_readonly) {
+  if !setlike.is_readonly {
     // add(value) -> Unit
-    if not(generated_methods.contains("add")) {
+    if !generated_methods.contains("add") {
       generated_methods.push("add")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -193,7 +193,7 @@ fn gen_setlike_methods(
     }
 
     // delete(value) -> Bool
-    if not(generated_methods.contains("delete")) {
+    if !generated_methods.contains("delete") {
       generated_methods.push("delete")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -206,7 +206,7 @@ fn gen_setlike_methods(
     }
 
     // clear() -> Unit
-    if not(generated_methods.contains("clear")) {
+    if !generated_methods.contains("clear") {
       generated_methods.push("clear")
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -231,7 +231,7 @@ fn gen_namespace_operation_single(
   enum_map : Array[(String, Array[String])],
   dict_map : Array[(String, DictionaryDef)],
 ) -> String {
-  let op_snake = escape_reserved(to_snake_case(op.name))
+  let op_snake = op.name |> to_snake_case |> escape_reserved
   let fn_name = ns_snake + "_" + op_snake + fn_suffix
   let return_type = idl_type_to_moonbit(op.return_type)
   let needs_wrapper = has_dict_args(args, arg_count, dict_map)
@@ -251,7 +251,7 @@ fn gen_namespace_operation_single(
       result.write_string(", ")
     }
     let arg = args[i]
-    result.write_string(escape_reserved(to_snake_case(arg.name)))
+    result.write_string(arg.name |> to_snake_case |> escape_reserved)
     result.write_string(" : ")
     if needs_wrapper {
       result.write_string(gen_ffi_arg_type(arg, dict_map))
@@ -267,7 +267,7 @@ fn gen_namespace_operation_single(
     if i > 0 {
       result.write_string(", ")
     }
-    result.write_string(escape_reserved(to_snake_case(args[i].name)))
+    result.write_string(args[i].name |> to_snake_case |> escape_reserved)
   }
   result.write_string(") => ")
   let js_call_args = StringBuilder::new()
@@ -289,7 +289,7 @@ fn gen_namespace_operation_single(
       if i > 0 {
         result.write_string(", ")
       }
-      result.write_string(escape_reserved(to_snake_case(args[i].name)))
+      result.write_string(args[i].name |> to_snake_case |> escape_reserved)
       result.write_string(" : ")
       result.write_string(idl_type_to_moonbit(args[i].idl_type))
     }
@@ -364,7 +364,7 @@ pub fn gen_namespace_binding(
         }
         let base_fn_name = ns_snake +
           "_" +
-          escape_reserved(to_snake_case(op.name))
+          (op.name |> to_snake_case |> escape_reserved)
         if generated_fns.contains(base_fn_name) {
           continue
         }
@@ -460,7 +460,7 @@ pub fn gen_namespace_binding(
       }
       Attribute(attr) => {
         let getter_name = ns_snake + "_get_" + to_snake_case(attr.name)
-        if not(generated_fns.contains(getter_name)) {
+        if !generated_fns.contains(getter_name) {
           generated_fns.push(getter_name)
           result.write_string(
             gen_namespace_attribute_getter(ns.name, ns_snake, attr, enum_map),

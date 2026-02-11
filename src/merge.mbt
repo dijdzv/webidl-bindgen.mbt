@@ -28,19 +28,19 @@ pub fn merge_definitions(definitions : Array[Definition]) -> Array[Definition] {
       Partial(partial) => partials.push(partial)
       Enum(e) =>
         // Only add enum if not already seen
-        if not(seen_enums.contains(e.name)) {
+        if !seen_enums.contains(e.name) {
           seen_enums.push(e.name)
           others.push(def)
         }
       Typedef(t) =>
         // Only add typedef if not already seen
-        if not(seen_typedefs.contains(t.name)) {
+        if !seen_typedefs.contains(t.name) {
           seen_typedefs.push(t.name)
           others.push(def)
         }
       CallbackInterface(cb) =>
         // Only add callback interface if not already seen
-        if not(seen_callbacks.contains(cb.name)) {
+        if !seen_callbacks.contains(cb.name) {
           seen_callbacks.push(cb.name)
           others.push(def)
         }
@@ -245,7 +245,7 @@ fn merge_interface_members(
     let new_name = get_member_name(new_mem)
     let is_duplicate = new_name != "" &&
       existing.iter().any(fn(m) { get_member_name(m) == new_name })
-    if not(is_duplicate) {
+    if !is_duplicate {
       result.push(new_mem)
     }
   })
@@ -276,7 +276,7 @@ fn merge_dictionary_members(
   let result : Array[DictionaryMember] = existing
     .iter()
     .fold(init=Array::new(), fn(result : Array[DictionaryMember], mem) {
-      if not(result.iter().any(fn(r) { r.name == mem.name })) {
+      if !result.iter().any(fn(r) { r.name == mem.name }) {
         result.push(mem)
       }
       result
@@ -285,7 +285,7 @@ fn merge_dictionary_members(
   new_members
   .iter()
   .fold(init=result, fn(result, new_mem) {
-    if not(result.iter().any(fn(r) { r.name == new_mem.name })) {
+    if !result.iter().any(fn(r) { r.name == new_mem.name }) {
       result.push(new_mem)
     }
     result
@@ -396,7 +396,7 @@ fn add_child_to_parent(
   for i = 0; i < inheritance_map.length(); i = i + 1 {
     let (name, children) = inheritance_map[i]
     if name == parent_name {
-      if not(children.contains(child_name)) {
+      if !children.contains(child_name) {
         children.push(child_name)
       }
       return
@@ -453,7 +453,7 @@ fn collect_inherited_dictionary_members(
       let result = grandparent_members
         .iter()
         .fold(init=Array::new(), fn(acc : Array[DictionaryMember], mem) {
-          if not(acc.iter().any(fn(e) { e.name == mem.name })) {
+          if !acc.iter().any(fn(e) { e.name == mem.name }) {
             acc.push(mem)
           }
           acc
@@ -462,7 +462,7 @@ fn collect_inherited_dictionary_members(
       dict.members
       .iter()
       .fold(init=result, fn(acc, mem) {
-        if not(acc.iter().any(fn(e) { e.name == mem.name })) {
+        if !acc.iter().any(fn(e) { e.name == mem.name }) {
           acc.push(mem)
         }
         acc

@@ -49,7 +49,7 @@ pub fn idl_type_to_moonbit_collecting(
       // Generate inline Union name and add to collector (using function from ast.mbt)
       let union_name = generate_union_name(members)
       // Add only if not already added
-      if not(has_inline_union(collector, union_name)) {
+      if !has_inline_union(collector, union_name) {
         collector.push((union_name, members))
       }
       union_name
@@ -136,7 +136,7 @@ pub fn gen_static_operation_with_suffix(
   if op.name.is_empty() {
     return ""
   }
-  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let fn_name = if suffix == "" { base_fn_name } else { base_fn_name + suffix }
   let return_type = idl_type_to_moonbit(op.return_type)
   let args_len = op.arguments.length()
@@ -149,7 +149,7 @@ pub fn gen_static_operation_with_suffix(
     if i > 0 {
       args.write_string(", ")
     }
-    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(arg.name |> to_snake_case |> escape_reserved)
     args.write_string(" : ")
     if needs_wrapper {
       args.write_string(gen_ffi_arg_type(arg, dict_map))
@@ -176,7 +176,7 @@ pub fn gen_static_operation_with_suffix(
     if i > 0 {
       js_params.write_string(", ")
     }
-    js_params.write_string(escape_reserved(to_snake_case(arg.name)))
+    js_params.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
   let result = StringBuilder::new()
   if needs_wrapper {
@@ -238,7 +238,7 @@ pub fn gen_static_operation_with_arg_count(
   if op.name.is_empty() {
     return ""
   }
-  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let fn_name = if fn_suffix == "" {
     base_fn_name
   } else {
@@ -254,7 +254,7 @@ pub fn gen_static_operation_with_arg_count(
     if i > 0 {
       args.write_string(", ")
     }
-    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(arg.name |> to_snake_case |> escape_reserved)
     args.write_string(" : ")
     if needs_wrapper {
       args.write_string(gen_ffi_arg_type(arg, dict_map))
@@ -281,7 +281,7 @@ pub fn gen_static_operation_with_arg_count(
     if i > 0 {
       js_params.write_string(", ")
     }
-    js_params.write_string(escape_reserved(to_snake_case(arg.name)))
+    js_params.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
   let result = StringBuilder::new()
   if needs_wrapper {
@@ -355,7 +355,7 @@ pub fn gen_special_operation(
         _ => false
       }
       let fn_name = if is_index_getter { "get" } else { "get_named" }
-      let arg_name = escape_reserved(to_snake_case(arg.name))
+      let arg_name = arg.name |> to_snake_case |> escape_reserved
       let result = StringBuilder::new()
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -389,8 +389,8 @@ pub fn gen_special_operation(
       let value_arg = op.arguments[1]
       let index_type = idl_type_to_moonbit(index_arg.idl_type)
       let value_type = idl_type_to_moonbit(value_arg.idl_type)
-      let index_name = escape_reserved(to_snake_case(index_arg.name))
-      let value_name = escape_reserved(to_snake_case(value_arg.name))
+      let index_name = index_arg.name |> to_snake_case |> escape_reserved
+      let value_name = value_arg.name |> to_snake_case |> escape_reserved
       let result = StringBuilder::new()
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -424,7 +424,7 @@ pub fn gen_special_operation(
       }
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
-      let arg_name = escape_reserved(to_snake_case(arg.name))
+      let arg_name = arg.name |> to_snake_case |> escape_reserved
       let result = StringBuilder::new()
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -459,7 +459,7 @@ pub fn gen_operation(
   if op.name.is_empty() {
     return ""
   }
-  let fn_name = escape_reserved(to_snake_case(op.name))
+  let fn_name = op.name |> to_snake_case |> escape_reserved
   let return_type = idl_type_to_moonbit(op.return_type)
   let args_len = op.arguments.length()
   let needs_wrapper = has_dict_args(op.arguments, args_len, dict_map)
@@ -471,7 +471,7 @@ pub fn gen_operation(
   for i = 0; i < args_len; i = i + 1 {
     let arg = op.arguments[i]
     args.write_string(", ")
-    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(arg.name |> to_snake_case |> escape_reserved)
     args.write_string(" : ")
     if needs_wrapper {
       args.write_string(gen_ffi_arg_type(arg, dict_map))
@@ -486,7 +486,7 @@ pub fn gen_operation(
   for i = 0; i < args_len; i = i + 1 {
     let arg = op.arguments[i]
     js_args.write_string(", ")
-    js_args.write_string(escape_reserved(to_snake_case(arg.name)))
+    js_args.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
 
   // JS call arguments
@@ -773,7 +773,7 @@ pub fn gen_operation_with_arg_count(
   if op.name.is_empty() {
     return ""
   }
-  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let fn_name = if fn_suffix == "" {
     base_fn_name
   } else {
@@ -789,7 +789,7 @@ pub fn gen_operation_with_arg_count(
   for i = 0; i < arg_count; i = i + 1 {
     let arg = op.arguments[i]
     args.write_string(", ")
-    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(arg.name |> to_snake_case |> escape_reserved)
     args.write_string(" : ")
     if needs_wrapper {
       args.write_string(gen_ffi_arg_type(arg, dict_map))
@@ -804,7 +804,7 @@ pub fn gen_operation_with_arg_count(
   for i = 0; i < arg_count; i = i + 1 {
     let arg = op.arguments[i]
     js_args.write_string(", ")
-    js_args.write_string(escape_reserved(to_snake_case(arg.name)))
+    js_args.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
 
   // JS call arguments
@@ -879,12 +879,12 @@ pub fn gen_operation_variants(
   if first_optional < 0 {
     let code = gen_operation(interface_name, op, enum_map, dict_map~)
     result.write_string(code)
-    fn_names.push(escape_reserved(to_snake_case(op.name)))
+    fn_names.push(op.name |> to_snake_case |> escape_reserved)
     return (result.to_string(), fn_names)
   }
 
   // Generate base version with required arguments only
-  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let base_code = gen_operation_with_arg_count(
     interface_name,
     op,
@@ -954,7 +954,7 @@ pub fn gen_overloaded_operations(
       // If no optional arguments
       if i == 0 {
         // First overload (minimum arguments) uses base name
-        let base_fn_name = escape_reserved(to_snake_case(op.name))
+        let base_fn_name = op.name |> to_snake_case |> escape_reserved
         generated_methods.push(base_fn_name)
         result.write_string(
           gen_operation(interface_name, op, enum_map, dict_map~),
@@ -963,7 +963,7 @@ pub fn gen_overloaded_operations(
       } else {
         // Others generate suffix from all arguments (distinguishes even same argument count)
         let suffix = gen_overload_suffix_from_all(op.arguments)
-        let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
+        let fn_name = (op.name |> to_snake_case |> escape_reserved) + suffix
         generated_methods.push(fn_name)
         result.write_string(
           gen_operation_with_arg_count(
@@ -979,7 +979,7 @@ pub fn gen_overloaded_operations(
       }
     } else {
       // For optional arguments, generate both required part and full argument version
-      let base_fn_name = escape_reserved(to_snake_case(op.name))
+      let base_fn_name = op.name |> to_snake_case |> escape_reserved
 
       // Create array with required arguments only
       let required_args : Array[Argument] = []
@@ -1062,7 +1062,7 @@ pub fn gen_overloaded_static_operations(
     let total_args = op.arguments.length()
     if first_optional < 0 {
       // No optional args - generate normally
-      let base_fn_name = escape_reserved(to_snake_case(op.name))
+      let base_fn_name = op.name |> to_snake_case |> escape_reserved
       generated_methods.push(base_fn_name)
       result.write_string(
         gen_static_operation(interface_name, op, enum_map, dict_map~),
@@ -1070,7 +1070,7 @@ pub fn gen_overloaded_static_operations(
       return result.to_string()
     }
     // Has optional args - generate base + full versions
-    let base_fn_name = escape_reserved(to_snake_case(op.name))
+    let base_fn_name = op.name |> to_snake_case |> escape_reserved
     // Base version (required args only)
     generated_methods.push(base_fn_name)
     result.write_string(
@@ -1111,7 +1111,7 @@ pub fn gen_overloaded_static_operations(
       // No optional arguments
       if i == 0 {
         // First overload uses base name
-        let base_fn_name = escape_reserved(to_snake_case(op.name))
+        let base_fn_name = op.name |> to_snake_case |> escape_reserved
         generated_methods.push(base_fn_name)
         result.write_string(
           gen_static_operation(interface_name, op, enum_map, dict_map~),
@@ -1120,7 +1120,7 @@ pub fn gen_overloaded_static_operations(
       } else {
         // Others generate suffix from all arguments
         let suffix = gen_overload_suffix_from_all(op.arguments)
-        let fn_name = escape_reserved(to_snake_case(op.name)) + suffix
+        let fn_name = (op.name |> to_snake_case |> escape_reserved) + suffix
         generated_methods.push(fn_name)
         result.write_string(
           gen_static_operation_with_suffix(
@@ -1135,7 +1135,7 @@ pub fn gen_overloaded_static_operations(
       }
     } else {
       // Has optional arguments - generate both required and full versions
-      let base_fn_name = escape_reserved(to_snake_case(op.name))
+      let base_fn_name = op.name |> to_snake_case |> escape_reserved
       // Create array with required arguments only
       let required_args : Array[Argument] = []
       for j = 0; j < first_optional; j = j + 1 {
@@ -1401,7 +1401,7 @@ pub fn gen_constructor_with_suffix(
     if i > 0 {
       args.write_string(", ")
     }
-    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(arg.name |> to_snake_case |> escape_reserved)
     args.write_string(" : ")
     if needs_wrapper {
       args.write_string(gen_ffi_arg_type(arg, dict_map))
@@ -1445,7 +1445,7 @@ pub fn gen_constructor_with_suffix(
     if i > 0 {
       result.write_string(", ")
     }
-    result.write_string(escape_reserved(to_snake_case(arg.name)))
+    result.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
   result.write_string(") => new ")
   result.write_string(interface_name)
@@ -1489,7 +1489,7 @@ pub fn gen_constructor_with_arg_count(
     if i > 0 {
       args.write_string(", ")
     }
-    args.write_string(escape_reserved(to_snake_case(arg.name)))
+    args.write_string(arg.name |> to_snake_case |> escape_reserved)
     args.write_string(" : ")
     if needs_wrapper {
       args.write_string(gen_ffi_arg_type(arg, dict_map))
@@ -1532,7 +1532,7 @@ pub fn gen_constructor_with_arg_count(
     if i > 0 {
       result.write_string(", ")
     }
-    result.write_string(escape_reserved(to_snake_case(arg.name)))
+    result.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
   result.write_string(") => new ")
   result.write_string(interface_name)
@@ -1710,7 +1710,7 @@ pub fn gen_all_constructors(
   let seen_sigs : Array[String] = []
   for i = 0; i < constructors.length(); i = i + 1 {
     let sig = constructor_signature(constructors[i])
-    if not(array_contains_string(seen_sigs, sig)) {
+    if !array_contains_string(seen_sigs, sig) {
       deduped.push(constructors[i])
       seen_sigs.push(sig)
     }
@@ -1729,7 +1729,7 @@ pub fn gen_all_constructors(
     if first_optional < 0 {
       // No optional args - generate normally
       let name = "new" + base_suffix
-      if not(array_contains_string(generated_names, name)) {
+      if !array_contains_string(generated_names, name) {
         generated_names.push(name)
         result.write_string(
           gen_constructor_with_suffix(
@@ -1755,7 +1755,7 @@ pub fn gen_all_constructors(
         base_suffix
       }
       let actual_base_name = "new" + actual_base_suffix
-      if not(array_contains_string(generated_names, actual_base_name)) {
+      if !array_contains_string(generated_names, actual_base_name) {
         generated_names.push(actual_base_name)
         result.write_string(
           gen_constructor_with_arg_count(
@@ -1775,7 +1775,7 @@ pub fn gen_all_constructors(
         "_with_" +
         to_snake_case(last_optional_arg.name)
       let full_name = "new" + full_suffix
-      if not(array_contains_string(generated_names, full_name)) {
+      if !array_contains_string(generated_names, full_name) {
         generated_names.push(full_name)
         result.write_string(
           gen_constructor_with_arg_count(
@@ -2024,9 +2024,9 @@ pub fn gen_interface_binding(
         match op.special {
           Some("getter") | Some("setter") | Some("deleter") => {
             // Generate named special operations as regular methods
-            if not(op.name.is_empty()) {
+            if !op.name.is_empty() {
               let fn_name = to_snake_case(op.name)
-              if not(generated_methods.contains(fn_name)) {
+              if !generated_methods.contains(fn_name) {
                 generated_methods.push(fn_name)
                 result.write_string(
                   gen_operation(iface.name, op, enum_map, dict_map~),
@@ -2050,7 +2050,7 @@ pub fn gen_interface_binding(
               Some("deleter") => "delete"
               _ => ""
             }
-            if not(generated_methods.contains(special_name)) {
+            if !generated_methods.contains(special_name) {
               generated_methods.push(special_name)
               let code = gen_special_operation(
                 iface.name,
@@ -2069,7 +2069,7 @@ pub fn gen_interface_binding(
           Some("static") => {
             // static operation - handle overloads
             let base_fn_name = to_snake_case(op.name)
-            if not(generated_methods.contains(base_fn_name)) {
+            if !generated_methods.contains(base_fn_name) {
               // Find all static operations with this name
               let group : Array[OperationDef] = operation_groups
                 .iter()
@@ -2079,12 +2079,7 @@ pub fn gen_interface_binding(
                     Some(
                       ops
                       .iter()
-                      .filter(fn(o) {
-                        match o.special {
-                          Some("static") => true
-                          _ => false
-                        }
-                      })
+                      .filter(fn(o) { o.special is Some("static") })
                       .collect(),
                     )
                   } else {
@@ -2110,7 +2105,7 @@ pub fn gen_interface_binding(
           _ => {
             // Regular operation - handle both overloads and optional arguments
             let base_fn_name = to_snake_case(op.name)
-            if not(generated_methods.contains(base_fn_name)) {
+            if !generated_methods.contains(base_fn_name) {
               // Find all operations with this name
               let mut group : Array[OperationDef] = []
               for j = 0; j < operation_groups.length(); j = j + 1 {
@@ -2136,14 +2131,14 @@ pub fn gen_interface_binding(
         }
       Attribute(attr) => {
         let getter_name = "get_" + to_snake_case(attr.name)
-        if not(generated_methods.contains(getter_name)) {
+        if !generated_methods.contains(getter_name) {
           generated_methods.push(getter_name)
           result.write_string(gen_attribute_getter(iface.name, attr, enum_map~))
           result.write_string("\n")
         }
-        if not(attr.is_readonly) {
+        if !attr.is_readonly {
           let setter_name = "set_" + to_snake_case(attr.name)
-          if not(generated_methods.contains(setter_name)) {
+          if !generated_methods.contains(setter_name) {
             generated_methods.push(setter_name)
             let setter = gen_attribute_setter(iface.name, attr, enum_map~)
             if setter != "" {
@@ -2155,7 +2150,7 @@ pub fn gen_interface_binding(
       }
       Constructor(_) =>
         // Generate all constructor overloads (handled once via gen_all_constructors)
-        if not(has_constructor) {
+        if !has_constructor {
           has_constructor = true
           result.write_string(
             gen_all_constructors(iface.name, iface.members, enum_map, dict_map~),
@@ -2165,7 +2160,7 @@ pub fn gen_interface_binding(
         let interface_prefix = to_snake_case(iface.name)
         let const_suffix = const_name_to_snake_case(const_def.name)
         let const_name = interface_prefix + "_" + const_suffix
-        if not(generated_constants.contains(const_name)) {
+        if !generated_constants.contains(const_name) {
           generated_constants.push(const_name)
           result.write_string(gen_const(iface.name, const_def))
           result.write_string("\n")
@@ -2197,14 +2192,11 @@ pub fn gen_interface_binding(
     for i = 0; i < members_len; i = i + 1 {
       match iface.members[i] {
         Operation(op) =>
-          if not(op.name.is_empty()) {
+          if !op.name.is_empty() {
             let args_len = op.arguments.length()
             match find_union_arg(op.arguments, args_len, union_typedef_map) {
               Some((idx, members)) => {
-                let is_static = match op.special {
-                  Some("static") => true
-                  _ => false
-                }
+                let is_static = op.special is Some("static")
                 if is_static {
                   result.write_string(
                     gen_static_union_arg_overloads(

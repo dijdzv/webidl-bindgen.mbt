@@ -112,9 +112,8 @@ fn collect_types_from_member(
     }
     Setlike(s) => collect_types_from_idl_type(s.value_type, refs)
     Iterable(iter) => {
-      match iter.key_type {
-        Some(kt) => collect_types_from_idl_type(kt, refs)
-        None => ()
+      if iter.key_type is Some(kt) {
+        collect_types_from_idl_type(kt, refs)
       }
       collect_types_from_idl_type(iter.value_type, refs)
     }
@@ -125,7 +124,7 @@ fn collect_types_from_member(
 /// Collect Named types from IdlType
 fn collect_types_from_idl_type(t : IdlType, refs : Array[String]) -> Unit {
   match t {
-    Named(name) => if not(refs.contains(name)) { refs.push(name) }
+    Named(name) => if !refs.contains(name) { refs.push(name) }
     Nullable(inner) => collect_types_from_idl_type(inner, refs)
     Sequence(inner) => collect_types_from_idl_type(inner, refs)
     Promise(inner) => collect_types_from_idl_type(inner, refs)
@@ -175,9 +174,8 @@ pub fn collect_inline_unions(
           collect_inline_unions_from_idl_type(arg.idl_type, collector)
         })
         // Process callback return value
-        match cb.return_type {
-          Some(t) => collect_inline_unions_from_idl_type(t, collector)
-          None => ()
+        if cb.return_type is Some(t) {
+          collect_inline_unions_from_idl_type(t, collector)
         }
       }
       _ => ()
@@ -215,9 +213,8 @@ fn collect_inline_unions_from_member(
     }
     Setlike(s) => collect_inline_unions_from_idl_type(s.value_type, collector)
     Iterable(iter) => {
-      match iter.key_type {
-        Some(kt) => collect_inline_unions_from_idl_type(kt, collector)
-        None => ()
+      if iter.key_type is Some(kt) {
+        collect_inline_unions_from_idl_type(kt, collector)
       }
       collect_inline_unions_from_idl_type(iter.value_type, collector)
     }
@@ -247,9 +244,7 @@ fn collect_inline_unions_from_idl_type(
       // Merge items added to dummy_collector into main collector
       dummy_collector
       .iter()
-      .filter(fn(entry) {
-        not(has_inline_union_in_collector(collector, entry.0))
-      })
+      .filter(fn(entry) { !has_inline_union_in_collector(collector, entry.0) })
       .each(fn(entry) { collector.push(entry) })
       // Process Union members recursively
       members
@@ -284,10 +279,10 @@ pub fn collect_external_types_with_ownership(
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
     // Check if defined in ownership map
     let is_defined = ownership.iter().any(fn(entry) { entry.0 == ref_type })
-    if not(is_defined) &&
-      not(builtin_types.contains(ref_type)) &&
-      not(undefined.contains(ref_type)) &&
-      not(is_lowercase) {
+    if !is_defined &&
+      !builtin_types.contains(ref_type) &&
+      !undefined.contains(ref_type) &&
+      !is_lowercase {
       undefined.push(ref_type)
     }
     undefined
@@ -309,11 +304,11 @@ fn collect_undefined_external_types(
     // Exclude lowercase-starting names (invalid type names like object)
     let first_char = get_first_char(ref_type)
     let is_lowercase = first_char >= 'a' && first_char <= 'z'
-    if not(defined.contains(ref_type)) &&
-      not(builtin_types.contains(ref_type)) &&
-      not(header_types.contains(ref_type)) &&
-      not(undefined.contains(ref_type)) &&
-      not(is_lowercase) {
+    if !defined.contains(ref_type) &&
+      !builtin_types.contains(ref_type) &&
+      !header_types.contains(ref_type) &&
+      !undefined.contains(ref_type) &&
+      !is_lowercase {
       undefined.push(ref_type)
     }
     undefined
@@ -335,7 +330,7 @@ fn write_external_type(
   exclude : Array[String],
   comment : String,
 ) -> Bool {
-  if not(is_excluded_type(name, exclude)) {
+  if !is_excluded_type(name, exclude) {
     result.write_string("pub type ")
     result.write_string(name)
     if comment != "" {
@@ -376,21 +371,22 @@ pub fn gen_file_header_with_exclude(
   result.write_string("  #| () => undefined\n\n")
 
   // JsValue type check methods
-  result.write_string("/// Check if value is null\n")
-  result.write_string(
+  result
+  ..write_string("/// Check if value is null\n")
+  ..write_string(
     "pub extern \"js\" fn JsValue::is_null(self : JsValue) -> Bool =\n",
   )
-  result.write_string("  #| (self) => self === null\n\n")
-  result.write_string("/// Check if value is undefined\n")
-  result.write_string(
+  ..write_string("  #| (self) => self === null\n\n")
+  ..write_string("/// Check if value is undefined\n")
+  ..write_string(
     "pub extern \"js\" fn JsValue::is_undefined(self : JsValue) -> Bool =\n",
   )
-  result.write_string("  #| (self) => self === undefined\n\n")
-  result.write_string("/// Check if value is null or undefined\n")
-  result.write_string(
+  ..write_string("  #| (self) => self === undefined\n\n")
+  ..write_string("/// Check if value is null or undefined\n")
+  ..write_string(
     "pub extern \"js\" fn JsValue::is_null_or_undefined(self : JsValue) -> Bool =\n",
   )
-  result.write_string("  #| (self) => self == null\n\n")
+  .write_string("  #| (self) => self == null\n\n")
 
   // Promise type (WebIDL built-in) - aliased to @js_async.Promise for .wait() support
   result.write_string(
@@ -399,33 +395,29 @@ pub fn gen_file_header_with_exclude(
   result.write_string("pub type Promise[T] = @js_async.Promise[T]\n\n")
 
   // Nullable type for JavaScript null vs undefined distinction
-  result.write_string(
-    "/// Nullable type for distinguishing null from undefined\n",
-  )
-  result.write_string("/// - Undefined: property not set (JS undefined)\n")
-  result.write_string("/// - Null: explicitly null\n")
-  result.write_string("/// - Value(T): has a value\n")
-  result.write_string("pub(all) enum Nullable[T] {\n")
-  result.write_string("  Undefined\n")
-  result.write_string("  Null\n")
-  result.write_string("  Value(T)\n")
-  result.write_string("}\n\n")
+  result
+  ..write_string("/// Nullable type for distinguishing null from undefined\n")
+  ..write_string("/// - Undefined: property not set (JS undefined)\n")
+  ..write_string("/// - Null: explicitly null\n")
+  ..write_string("/// - Value(T): has a value\n")
+  ..write_string("pub(all) enum Nullable[T] {\n")
+  ..write_string("  Undefined\n")
+  ..write_string("  Null\n")
+  ..write_string("  Value(T)\n")
+  .write_string("}\n\n")
 
   // try_catch helper for exception handling
-  result.write_string(
-    "/// Run a function and catch any JavaScript exception.\n",
-  )
-  result.write_string(
+  result
+  ..write_string("/// Run a function and catch any JavaScript exception.\n")
+  ..write_string(
     "/// Returns empty string on success, error message on exception.\n",
   )
-  result.write_string(
-    "pub extern \"js\" fn try_catch(f : () -> Unit) -> String =\n",
-  )
-  result.write_string(
+  ..write_string("pub extern \"js\" fn try_catch(f : () -> Unit) -> String =\n")
+  .write_string(
     "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
   )
 
-  // Output external types by category (only output header if types exist)
+  //Output external types by category (only output header if types exist)
   ignore(
     external_header_types
     .iter()
@@ -436,7 +428,7 @@ pub fn gen_file_header_with_exclude(
         let (type_name, category, comment) = entry
         if category != current_category {
           // Entered new category
-          if not(is_excluded_type(type_name, exclude)) {
+          if !is_excluded_type(type_name, exclude) {
             // Output header if type will be output
             if current_category != "" {
               result.write_string("\n")
@@ -451,8 +443,7 @@ pub fn gen_file_header_with_exclude(
             (category, false)
           }
           // Within same category
-        } else if not(header_written) &&
-          not(is_excluded_type(type_name, exclude)) {
+        } else if !header_written && !is_excluded_type(type_name, exclude) {
           // First type to output in this category, so output header
           if current_category != "" {
             result.write_string("\n")
@@ -584,7 +575,7 @@ pub fn format_definitions(
   // Add inline Union names to union_set
   inline_unions
   .iter()
-  .filter(fn(entry) { not(union_set.contains(entry.0)) })
+  .filter(fn(entry) { !union_set.contains(entry.0) })
   .each(fn(entry) { union_set.push(entry.0) })
 
   // Types section (enum, dictionary, typedef, callback interface, inline unions)
@@ -592,10 +583,7 @@ pub fn format_definitions(
     definitions
     .iter()
     .any(fn(def) {
-      match def {
-        Enum(_) | Dictionary(_) | Typedef(_) | CallbackInterface(_) => true
-        _ => false
-      }
+      def is (Enum(_) | Dictionary(_) | Typedef(_) | CallbackInterface(_))
     })
   if has_types {
     result.write_string(gen_section_comment("Types"))
@@ -772,7 +760,7 @@ pub fn normalize_blank_lines(code : String) -> String {
         let line = current_line.to_string()
         let is_blank = is_blank_line(line)
         if is_blank {
-          if not(prev_was_blank) {
+          if !prev_was_blank {
             result.write_char('\n')
           }
           (true, StringBuilder::new())
@@ -789,7 +777,7 @@ pub fn normalize_blank_lines(code : String) -> String {
 
   // Process last line
   let last_line = final_line.to_string()
-  if not(is_blank_line(last_line)) {
+  if !is_blank_line(last_line) {
     result.write_string(last_line)
   }
   result.to_string()
@@ -903,33 +891,29 @@ pub fn gen_shared_types_with_externals(
   result.write_string("pub type Promise[T] = @js_async.Promise[T]\n\n")
 
   // Nullable type for JavaScript null vs undefined distinction
-  result.write_string(
-    "/// Nullable type for distinguishing null from undefined\n",
-  )
-  result.write_string("/// - Undefined: property not set (JS undefined)\n")
-  result.write_string("/// - Null: explicitly null\n")
-  result.write_string("/// - Value(T): has a value\n")
-  result.write_string("pub(all) enum Nullable[T] {\n")
-  result.write_string("  Undefined\n")
-  result.write_string("  Null\n")
-  result.write_string("  Value(T)\n")
-  result.write_string("}\n\n")
+  result
+  ..write_string("/// Nullable type for distinguishing null from undefined\n")
+  ..write_string("/// - Undefined: property not set (JS undefined)\n")
+  ..write_string("/// - Null: explicitly null\n")
+  ..write_string("/// - Value(T): has a value\n")
+  ..write_string("pub(all) enum Nullable[T] {\n")
+  ..write_string("  Undefined\n")
+  ..write_string("  Null\n")
+  ..write_string("  Value(T)\n")
+  .write_string("}\n\n")
 
   // try_catch helper for exception handling
-  result.write_string(
-    "/// Run a function and catch any JavaScript exception.\n",
-  )
-  result.write_string(
+  result
+  ..write_string("/// Run a function and catch any JavaScript exception.\n")
+  ..write_string(
     "/// Returns empty string on success, error message on exception.\n",
   )
-  result.write_string(
-    "pub extern \"js\" fn try_catch(f : () -> Unit) -> String =\n",
-  )
-  result.write_string(
+  ..write_string("pub extern \"js\" fn try_catch(f : () -> Unit) -> String =\n")
+  .write_string(
     "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
   )
 
-  // External type declarations
+  //External type declarations
   if external_types.length() > 0 {
     result.write_string(
       "// External types (referenced but not defined in WebIDL specs)\n",
@@ -949,7 +933,7 @@ pub fn gen_shared_types_with_externals(
     result.write_string("// Inline Union types\n")
     inline_unions
     .iter()
-    .filter(fn(entry) { not(defined_types.contains(entry.0)) })
+    .filter(fn(entry) { !defined_types.contains(entry.0) })
     .each(fn(entry) {
       let (name, members) = entry
       // Generate typedef for each inline Union
@@ -970,21 +954,22 @@ pub fn gen_shared_types_with_externals(
 
   // JsValue type check methods
   result.write_string("// JsValue type checks\n")
-  result.write_string("/// Check if value is null\n")
-  result.write_string(
+  result
+  ..write_string("/// Check if value is null\n")
+  ..write_string(
     "pub extern \"js\" fn JsValue::is_null(self : JsValue) -> Bool =\n",
   )
-  result.write_string("  #| (self) => self === null\n\n")
-  result.write_string("/// Check if value is undefined\n")
-  result.write_string(
+  ..write_string("  #| (self) => self === null\n\n")
+  ..write_string("/// Check if value is undefined\n")
+  ..write_string(
     "pub extern \"js\" fn JsValue::is_undefined(self : JsValue) -> Bool =\n",
   )
-  result.write_string("  #| (self) => self === undefined\n\n")
-  result.write_string("/// Check if value is null or undefined\n")
-  result.write_string(
+  ..write_string("  #| (self) => self === undefined\n\n")
+  ..write_string("/// Check if value is null or undefined\n")
+  ..write_string(
     "pub extern \"js\" fn JsValue::is_null_or_undefined(self : JsValue) -> Bool =\n",
   )
-  result.write_string("  #| (self) => self == null\n\n")
+  .write_string("  #| (self) => self == null\n\n")
 
   // TypedArray index access methods
   result.write_string("// TypedArray index access\n")
@@ -1067,10 +1052,7 @@ pub fn format_spec_output(
   let has_types = definitions
     .iter()
     .any(fn(def) {
-      match def {
-        Typedef(_) | Enum(_) | Dictionary(_) | CallbackInterface(_) => true
-        _ => false
-      }
+      def is (Typedef(_) | Enum(_) | Dictionary(_) | CallbackInterface(_))
     })
   if has_types {
     // Output Typedef first
@@ -1222,7 +1204,7 @@ fn gen_callback_from_fn(cb : CallbackInterfaceDef) -> String {
     cb.arguments
     .iter()
     .fold(init=true, fn(first, arg) {
-      if not(first) {
+      if !first {
         result.write_string(", ")
       }
       result.write_string(idl_type_to_moonbit(arg.idl_type))

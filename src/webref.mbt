@@ -116,7 +116,7 @@ pub async fn load_multiple_specs(
     }
 
     // Check if spec exists
-    if not(spec_exists(specs, spec_name)) {
+    if !spec_exists(specs, spec_name) {
       results.push({
         spec_name,
         definitions: [],
@@ -140,7 +140,7 @@ pub async fn load_multiple_specs(
 
     // Parse IDL
     let parse_result = parse_webidl_raw(idl_text)
-    if not(is_parse_success(parse_result)) {
+    if !is_parse_success(parse_result) {
       let error = get_parse_error(parse_result)
       results.push({
         spec_name,

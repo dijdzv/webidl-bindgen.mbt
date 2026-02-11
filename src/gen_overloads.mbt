@@ -49,7 +49,7 @@ fn gen_union_arg_overloads(
   generated_methods : Array[String],
 ) -> String {
   let result = StringBuilder::new()
-  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let return_type = idl_type_to_moonbit(op.return_type)
   let args_len = op.arguments.length()
   union_members
@@ -76,7 +76,7 @@ fn gen_union_arg_overloads(
     for i = 0; i < args_len; i = i + 1 {
       let arg = op.arguments[i]
       result.write_string(", ")
-      result.write_string(escape_reserved(to_snake_case(arg.name)))
+      result.write_string(arg.name |> to_snake_case |> escape_reserved)
       result.write_string(" : ")
       if i == union_arg_index {
         result.write_string(moonbit_type)
@@ -91,7 +91,9 @@ fn gen_union_arg_overloads(
     result.write_string("  #| (self")
     for i = 0; i < args_len; i = i + 1 {
       result.write_string(", ")
-      result.write_string(escape_reserved(to_snake_case(op.arguments[i].name)))
+      result.write_string(
+        op.arguments[i].name |> to_snake_case |> escape_reserved,
+      )
     }
     let js_call_args = StringBuilder::new()
     for i = 0; i < args_len; i = i + 1 {
@@ -101,7 +103,7 @@ fn gen_union_arg_overloads(
       if i == union_arg_index {
         // Union member: pass through directly
         js_call_args.write_string(
-          escape_reserved(to_snake_case(op.arguments[i].name)),
+          op.arguments[i].name |> to_snake_case |> escape_reserved,
         )
       } else {
         js_call_args.write_string(
@@ -130,7 +132,7 @@ fn gen_static_union_arg_overloads(
   generated_methods : Array[String],
 ) -> String {
   let result = StringBuilder::new()
-  let base_fn_name = escape_reserved(to_snake_case(op.name))
+  let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let return_type = idl_type_to_moonbit(op.return_type)
   let args_len = op.arguments.length()
   union_members
@@ -156,7 +158,7 @@ fn gen_static_union_arg_overloads(
         result.write_string(", ")
       }
       let arg = op.arguments[i]
-      result.write_string(escape_reserved(to_snake_case(arg.name)))
+      result.write_string(arg.name |> to_snake_case |> escape_reserved)
       result.write_string(" : ")
       if i == union_arg_index {
         result.write_string(moonbit_type)
@@ -172,7 +174,9 @@ fn gen_static_union_arg_overloads(
       if i > 0 {
         result.write_string(", ")
       }
-      result.write_string(escape_reserved(to_snake_case(op.arguments[i].name)))
+      result.write_string(
+        op.arguments[i].name |> to_snake_case |> escape_reserved,
+      )
     }
     let js_call_args = StringBuilder::new()
     for i = 0; i < args_len; i = i + 1 {
@@ -181,7 +185,7 @@ fn gen_static_union_arg_overloads(
       }
       if i == union_arg_index {
         js_call_args.write_string(
-          escape_reserved(to_snake_case(op.arguments[i].name)),
+          op.arguments[i].name |> to_snake_case |> escape_reserved,
         )
       } else {
         js_call_args.write_string(
@@ -244,7 +248,7 @@ fn gen_constructor_union_arg_overloads(
         result.write_string(", ")
       }
       let arg = ctor.arguments[i]
-      result.write_string(escape_reserved(to_snake_case(arg.name)))
+      result.write_string(arg.name |> to_snake_case |> escape_reserved)
       result.write_string(" : ")
       if i == union_arg_index {
         result.write_string(moonbit_type)
@@ -261,7 +265,7 @@ fn gen_constructor_union_arg_overloads(
         result.write_string(", ")
       }
       result.write_string(
-        escape_reserved(to_snake_case(ctor.arguments[i].name)),
+        ctor.arguments[i].name |> to_snake_case |> escape_reserved,
       )
     }
     let js_call_args = StringBuilder::new()
@@ -271,7 +275,7 @@ fn gen_constructor_union_arg_overloads(
       }
       if i == union_arg_index {
         js_call_args.write_string(
-          escape_reserved(to_snake_case(ctor.arguments[i].name)),
+          ctor.arguments[i].name |> to_snake_case |> escape_reserved,
         )
       } else {
         js_call_args.write_string(

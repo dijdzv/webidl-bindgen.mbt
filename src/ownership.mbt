@@ -36,7 +36,7 @@ pub fn build_global_type_ownership(
         let already_owned = ownership
           .iter()
           .any(fn(pair) { pair.0 == type_name })
-        if not(already_owned) && type_name != "" {
+        if !already_owned && type_name != "" {
           ownership.push((type_name, result.spec_name))
         }
       }
