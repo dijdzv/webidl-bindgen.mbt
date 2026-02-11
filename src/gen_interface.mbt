@@ -357,6 +357,9 @@ pub fn gen_special_operation(
       let fn_name = if is_index_getter { "get" } else { "get_named" }
       let arg_name = arg.name |> to_snake_case |> escape_reserved
       let result = StringBuilder::new()
+      if is_index_getter {
+        result.write_string("#alias(\"_[_]\")\n")
+      }
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
       result.write_string("::")
@@ -391,7 +394,11 @@ pub fn gen_special_operation(
       let value_type = idl_type_to_moonbit(value_arg.idl_type)
       let index_name = index_arg.name |> to_snake_case |> escape_reserved
       let value_name = value_arg.name |> to_snake_case |> escape_reserved
+      let is_index_setter = index_arg.idl_type is Primitive(_)
       let result = StringBuilder::new()
+      if is_index_setter {
+        result.write_string("#alias(\"_[_]=_\")\n")
+      }
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
       result.write_string("::set(self : ")
