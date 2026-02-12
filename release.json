@@ -1,0 +1,5 @@
+{
+  "moon_publish": false,
+  "npm_publish": true,
+  "npm_build_command": "bun run build"
+}
