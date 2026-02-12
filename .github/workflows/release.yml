@@ -90,6 +90,9 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Fetch MoonBit dependencies
+        run: moon update
+
       - name: Install moon-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
