@@ -2,6 +2,6 @@
   "moon_publish": false,
   "npm_publish": true,
   "npm_build_command": "bun run build",
-  "git_tag": false,
+  "git_tag": true,
   "git_release": false
 }
