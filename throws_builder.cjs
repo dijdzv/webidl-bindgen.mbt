@@ -4,12 +4,48 @@
 // Input: spec name (e.g., "dom", "html", "fetch")
 // Output: JS Map<string, string[]> ("Interface.method" -> ["ExceptionName", ...])
 
+// Module-level cache: maps @webref/idl spec name -> actual algorithms file name
+// e.g., "IndexedDB" -> "IndexedDB-3", "dom" -> "dom" (exact)
+let _algoNameMap = null;
+
+async function resolveAlgoName(specName) {
+  if (!_algoNameMap) {
+    _algoNameMap = new Map();
+    for (let page = 1; page <= 5; page++) {
+      try {
+        const r = await fetch(
+          `https://api.github.com/repos/w3c/webref/contents/ed/algorithms?per_page=100&page=${page}`
+        );
+        if (!r.ok) break;
+        const files = await r.json();
+        if (!Array.isArray(files) || files.length === 0) break;
+        for (const f of files) {
+          const name = f.name.replace('.json', '');
+          _algoNameMap.set(name, name);
+          // Map base name (without version suffix) to versioned name
+          // e.g., "IndexedDB-3" -> base "IndexedDB" maps to "IndexedDB-3"
+          const base = name.replace(/-[\d.]+$/, '');
+          if (base !== name && !_algoNameMap.has(base)) {
+            _algoNameMap.set(base, name);
+          }
+        }
+      } catch {
+        break;
+      }
+    }
+  }
+  return _algoNameMap.get(specName) || null;
+}
+
 module.exports = async function buildThrowsMap(specName) {
   const map = new Map();
 
-  // Layer 1: Fetch algorithms JSON
+  // Layer 1: Fetch algorithms JSON (with version-suffix fallback)
+  const resolvedName = await resolveAlgoName(specName);
+  if (!resolvedName) return map;
+
   const algoData = await fetchJson(
-    `https://raw.githubusercontent.com/w3c/webref/main/ed/algorithms/${specName}.json`
+    `https://raw.githubusercontent.com/w3c/webref/main/ed/algorithms/${resolvedName}.json`
   );
   if (!algoData) return map;
 
@@ -50,8 +86,9 @@ module.exports = async function buildThrowsMap(specName) {
   }
 
   // Layer 3: dfns JSON + spec HTML bridge for method discovery
+  // Use resolved name (webref uses consistent naming across algorithms/dfns)
   const dfnsData = await fetchJson(
-    `https://raw.githubusercontent.com/w3c/webref/main/ed/dfns/${specName}.json`
+    `https://raw.githubusercontent.com/w3c/webref/main/ed/dfns/${resolvedName}.json`
   );
   if (dfnsData && dfnsData.dfns) {
     for (const dfn of dfnsData.dfns) {

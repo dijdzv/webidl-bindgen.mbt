@@ -12,6 +12,8 @@ pub fn inject_throws(
     match def {
       Interface(iface) =>
         inject_throws_into_members(iface.name, iface.members, throws_maps)
+      InterfaceMixin(mix) =>
+        inject_throws_into_members(mix.name, mix.members, throws_maps)
       Partial(partial) =>
         inject_throws_into_members(partial.target, partial.members, throws_maps)
       Namespace(ns) =>
