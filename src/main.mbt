@@ -45,7 +45,7 @@ struct CliArgs {
   all : Bool // load all specs
   per_spec : Bool // output each spec to separate file
   output : String
-  no_throws : Bool // disable throws detection from webref algorithms
+  no_throws : Bool // disable throws detection from MDN
   help : Bool
 }
 
@@ -115,9 +115,7 @@ fn print_usage() -> Unit {
   println(
     "      --per-spec          Output each spec to separate file (with --all or --specs)",
   )
-  println(
-    "      --no-throws         Disable throws detection from webref algorithms",
-  )
+  println("      --no-throws         Disable throws detection from MDN")
   println("  -o, --output <dir>      Output directory (default: ./)")
   println("  -h, --help              Show this help message")
   println("")
@@ -230,34 +228,35 @@ async fn main {
         }
       })
 
-    // Build throws maps (enabled by default, disable with --no-throws)
+    // Build throws map from MDN (enabled by default, disable with --no-throws)
     if !args.no_throws {
-      println("Building throws maps from webref algorithms...")
-      let throws_maps : Array[(String, ThrowsMap)] = []
-      for result in results {
-        if result.success {
-          let throws_map = build_throws_map(result.spec_name)
-          let map_size = throws_map_size(throws_map)
-          if map_size > 0 {
-            throws_maps.push((result.spec_name, throws_map))
-            println(
-              "  " +
-              result.spec_name +
-              ": " +
-              map_size.to_string() +
-              " throwing methods detected",
-            )
+      println("Building throws map from MDN content...")
+      let all_defs = merge_all_results(results)
+      let mdn_result = build_throws_map_from_mdn(all_defs)
+      let map_size = throws_map_size(mdn_result.throws_map)
+      println(
+        "Detected " +
+        map_size.to_string() +
+        " throwing members from MDN (" +
+        mdn_result.not_found.to_string() +
+        "/" +
+        mdn_result.total_fetched.to_string() +
+        " pages not found)",
+      )
+      if map_size > 0 {
+        let throws_maps : Array[(String, ThrowsMap)] = [
+          ("mdn", mdn_result.throws_map),
+        ]
+        for result in results {
+          if result.success {
+            inject_throws(result.definitions, throws_maps)
           }
         }
       }
-      println(
-        "Throws maps built for " + throws_maps.length().to_string() + " specs",
-      )
-      // Inject throws into all definitions
-      for result in results {
-        if result.success {
-          inject_throws(result.definitions, throws_maps)
-        }
+      if mdn_result.not_found > 0 {
+        let report_file = path_join(args.output, "throws_not_found.md")
+        write_file_sync(report_file, gen_not_found_report(mdn_result))
+        println("Writing: " + report_file)
       }
     }
 
@@ -502,15 +501,30 @@ async fn main {
 
   // Build and inject throws info (enabled by default for --spec, disable with --no-throws)
   if !args.no_throws && args.spec != "" {
-    println("Building throws map from webref algorithms...")
-    let throws_map = build_throws_map(args.spec)
-    let map_size = throws_map_size(throws_map)
+    println("Building throws map from MDN content...")
+    let mdn_result = build_throws_map_from_mdn(definitions)
+    let map_size = throws_map_size(mdn_result.throws_map)
     if map_size > 0 {
-      println("Detected " + map_size.to_string() + " throwing methods")
-      let throws_maps : Array[(String, ThrowsMap)] = [(args.spec, throws_map)]
+      println(
+        "Detected " +
+        map_size.to_string() +
+        " throwing members from MDN (" +
+        mdn_result.not_found.to_string() +
+        "/" +
+        mdn_result.total_fetched.to_string() +
+        " pages not found)",
+      )
+      let throws_maps : Array[(String, ThrowsMap)] = [
+        ("mdn", mdn_result.throws_map),
+      ]
       inject_throws(definitions, throws_maps)
+      if mdn_result.not_found > 0 {
+        let report_file = path_join(args.output, "throws_not_found.md")
+        write_file_sync(report_file, gen_not_found_report(mdn_result))
+        println("Writing: " + report_file)
+      }
     } else {
-      println("No throwing methods detected")
+      println("No throwing members detected")
     }
   }
 

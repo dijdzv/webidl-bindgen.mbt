@@ -1,23 +1,39 @@
-// Fetch algorithms data from webref GitHub for throws detection
+// ThrowsMap type and accessors for throws detection
 
 ///|
 /// Type for throws map (JS Map<string, string[]>)
 pub type ThrowsMap
 
 ///|
-/// Build throws map for a single spec.
-/// Returns a JS Map: "Interface.method" -> ["ExceptionName", ...]
-/// Uses algorithms JSON + spec HTML + dfns JSON from webref.
-extern "js" fn build_throws_map_promise(
-  spec_name : String,
-) -> @js_async.Promise[ThrowsMap] =
-  #| (specName) => require('./throws_builder.cjs')(specName)
+/// Create an empty throws map
+pub extern "js" fn create_throws_map() -> ThrowsMap =
+  #| () => new Map()
 
 ///|
-/// Build throws map for a single spec (async wrapper)
-pub async fn build_throws_map(spec_name : String) -> ThrowsMap {
-  build_throws_map_promise(spec_name).wait()
-}
+/// Set throws for a method: key = "Interface.method"
+pub extern "js" fn set_throws(
+  throws_map : ThrowsMap,
+  interface_name : String,
+  method_name : String,
+  exceptions : Array[String],
+) -> Unit =
+  #| (map, iface, method, exceptions) => {
+  #|   const key = iface + '.' + method;
+  #|   map.set(key, exceptions);
+  #| }
+
+///|
+/// Set throws for an attribute setter: keys = "Interface.set_attr" and "Interface.attr"
+pub extern "js" fn set_attribute_throws(
+  throws_map : ThrowsMap,
+  interface_name : String,
+  attr_name : String,
+  exceptions : Array[String],
+) -> Unit =
+  #| (map, iface, attr, exceptions) => {
+  #|   map.set(iface + '.set_' + attr, exceptions);
+  #|   map.set(iface + '.' + attr, exceptions);
+  #| }
 
 ///|
 /// Get throws list for a specific method from throws map.
@@ -31,6 +47,17 @@ pub extern "js" fn get_throws(
   #| (map, iface, method) => {
   #|   const key = iface + '.' + method;
   #|   return map.get(key) || [];
+  #| }
+
+///|
+/// Get throws list for an attribute from throws map.
+pub extern "js" fn get_attribute_throws(
+  throws_map : ThrowsMap,
+  interface_name : String,
+  attr_name : String,
+) -> JsArray =
+  #| (map, iface, attr) => {
+  #|   return map.get(iface + '.' + attr) || [];
   #| }
 
 ///|

@@ -6,11 +6,10 @@
         "webidl-bindgen.mbt": "./_build/js/release/build/webidl-bindgen.js"
     },
     "files": [
-        "_build/js/release/build/webidl-bindgen.js",
-        "_build/js/release/build/throws_builder.cjs"
+        "_build/js/release/build/webidl-bindgen.js"
     ],
     "scripts": {
-        "build": "moon build --target js --release && cp throws_builder.cjs _build/js/release/build/ && bun run add-shebang",
+        "build": "moon build --target js --release && bun run add-shebang",
         "add-shebang": "echo '#!/usr/bin/env node' | cat - _build/js/release/build/webidl-bindgen.js > temp && mv temp _build/js/release/build/webidl-bindgen.js",
         "prepublishOnly": "bun run build"
     },

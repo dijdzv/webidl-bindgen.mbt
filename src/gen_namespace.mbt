@@ -371,9 +371,7 @@ pub fn gen_namespace_binding(
   .each(fn(mem) {
     match mem {
       Operation(op) =>
-        if op.throws.length() > 0 &&
-          !op.name.is_empty() &&
-          not(op.return_type is Promise(_)) {
+        if op.throws.length() > 0 && !op.name.is_empty() {
           let enum_name = gen_error_enum_name(op.name, interface_prefix=ns.name)
           if !generated_error_enums.contains(enum_name) {
             generated_error_enums.push(enum_name)

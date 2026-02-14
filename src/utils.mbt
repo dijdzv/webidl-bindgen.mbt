@@ -413,10 +413,34 @@ pub fn wrap_throwing_js_expr(
 }
 
 ///|
+/// Wrap a Promise JS call expression with .then().catch() for throwing methods.
+/// Returns a JS expression that produces Promise[Result[T, E]] representation.
+/// Ok = {$tag: 0, _0: value}, Err = {$tag: 1, _0: classified_error}
+pub fn wrap_promise_throwing_js_expr(
+  js_expr : String,
+  inner_type : IdlType,
+  classify_fn_name : String,
+) -> String {
+  let ok_value = match inner_type {
+    Void => "{ $tag: 0, _0: undefined }"
+    _ => {
+      let inner_wrapped = wrap_return_expr("v", inner_type)
+      "{ $tag: 0, _0: " + inner_wrapped + " }"
+    }
+  }
+  js_expr +
+  ".then(v => " +
+  ok_value +
+  ").catch(e => ({ $tag: 1, _0: " +
+  classify_fn_name +
+  "(e) }))"
+}
+
+///|
 /// Compute throws context for code generation.
 /// Returns (effective_return_type, is_throwing, error_enum_name)
-/// Promise-returning methods are excluded from throws handling
-/// (async errors are expressed as rejections, not synchronous exceptions).
+/// For Promise-returning methods: Promise[Result[T, E]] (rejection-based errors).
+/// For non-Promise methods: Result[T, E] (synchronous try-catch).
 pub fn compute_throws_context(
   throws : Array[String],
   method_name : String,
@@ -424,16 +448,24 @@ pub fn compute_throws_context(
   base_return_type : String,
   idl_return_type? : IdlType = Void,
 ) -> (String, Bool, String) {
-  if throws.length() > 0 && not(idl_return_type is Promise(_)) {
+  if throws.length() > 0 {
     let error_enum_name = gen_error_enum_name(
       method_name,
       interface_prefix=interface_name,
     )
-    (
-      gen_throwing_return_type(base_return_type, error_enum_name),
-      true,
-      error_enum_name,
-    )
+    match idl_return_type {
+      Promise(inner) => {
+        let inner_type = idl_type_to_moonbit(inner)
+        let result_type = gen_throwing_return_type(inner_type, error_enum_name)
+        ("Promise[" + result_type + "]", true, error_enum_name)
+      }
+      _ =>
+        (
+          gen_throwing_return_type(base_return_type, error_enum_name),
+          true,
+          error_enum_name,
+        )
+    }
   } else {
     (base_return_type, false, "")
   }
@@ -448,11 +480,20 @@ pub fn wrap_return_or_throwing(
   error_enum_name : String,
 ) -> String {
   if is_throwing {
-    wrap_throwing_js_expr(
-      js_expr,
-      return_type,
-      get_classify_fn_name(error_enum_name),
-    )
+    match return_type {
+      Promise(inner) =>
+        wrap_promise_throwing_js_expr(
+          js_expr,
+          inner,
+          get_classify_fn_name(error_enum_name),
+        )
+      _ =>
+        wrap_throwing_js_expr(
+          js_expr,
+          return_type,
+          get_classify_fn_name(error_enum_name),
+        )
+    }
   } else {
     wrap_return_expr(js_expr, return_type)
   }
