@@ -46,6 +46,7 @@ struct CliArgs {
   per_spec : Bool // output each spec to separate file
   output : String
   no_throws : Bool // disable throws detection from MDN
+  throws_overrides : String // path to throws overrides JSON file
   help : Bool
 }
 
@@ -59,6 +60,7 @@ fn parse_args() -> CliArgs {
   let mut per_spec = false
   let mut output = "./"
   let mut no_throws = false
+  let mut throws_overrides = ""
   let mut help = false
   let mut i = 2 // Skip node and script path
   while i < argc {
@@ -67,6 +69,11 @@ fn parse_args() -> CliArgs {
       help = true
     } else if arg == "--no-throws" {
       no_throws = true
+    } else if arg == "--throws-overrides" {
+      i = i + 1
+      if i < argc {
+        throws_overrides = get_argv_string(i)
+      }
     } else if arg == "--input" || arg == "-i" {
       i = i + 1
       if i < argc {
@@ -97,7 +104,17 @@ fn parse_args() -> CliArgs {
     }
     i = i + 1
   }
-  { input, spec, specs, all, per_spec, output, no_throws, help }
+  {
+    input,
+    spec,
+    specs,
+    all,
+    per_spec,
+    output,
+    no_throws,
+    throws_overrides,
+    help,
+  }
 }
 
 ///|
@@ -116,6 +133,9 @@ fn print_usage() -> Unit {
     "      --per-spec          Output each spec to separate file (with --all or --specs)",
   )
   println("      --no-throws         Disable throws detection from MDN")
+  println(
+    "      --throws-overrides <file>  Additional throws overrides JSON file",
+  )
   println("  -o, --output <dir>      Output directory (default: ./)")
   println("  -h, --help              Show this help message")
   println("")
@@ -243,7 +263,34 @@ async fn main {
         mdn_result.total_fetched.to_string() +
         " pages not found)",
       )
-      if map_size > 0 {
+      if mdn_result.has_section_but_no_parse > 0 {
+        println(
+          "Warning: " +
+          mdn_result.has_section_but_no_parse.to_string() +
+          " pages have ### Exceptions section but no exceptions were parsed",
+        )
+      }
+      // Apply built-in + user overrides
+      let user_json = if args.throws_overrides != "" {
+        read_file_sync(args.throws_overrides)
+      } else {
+        ""
+      }
+      let (added, removed) = apply_throws_overrides(
+        mdn_result.throws_map,
+        user_json,
+      )
+      if added > 0 || removed > 0 {
+        println(
+          "Applied throws overrides: +" +
+          added.to_string() +
+          " added, -" +
+          removed.to_string() +
+          " removed",
+        )
+      }
+      let final_size = throws_map_size(mdn_result.throws_map)
+      if final_size > 0 {
         let throws_maps : Array[(String, ThrowsMap)] = [
           ("mdn", mdn_result.throws_map),
         ]
@@ -253,7 +300,7 @@ async fn main {
           }
         }
       }
-      if mdn_result.not_found > 0 {
+      if mdn_result.not_found > 0 || mdn_result.has_section_but_no_parse > 0 {
         let report_file = path_join(args.output, "throws_not_found.md")
         write_file_sync(report_file, gen_not_found_report(mdn_result))
         println("Writing: " + report_file)
@@ -514,11 +561,40 @@ async fn main {
         mdn_result.total_fetched.to_string() +
         " pages not found)",
       )
-      let throws_maps : Array[(String, ThrowsMap)] = [
-        ("mdn", mdn_result.throws_map),
-      ]
-      inject_throws(definitions, throws_maps)
-      if mdn_result.not_found > 0 {
+      if mdn_result.has_section_but_no_parse > 0 {
+        println(
+          "Warning: " +
+          mdn_result.has_section_but_no_parse.to_string() +
+          " pages have ### Exceptions section but no exceptions were parsed",
+        )
+      }
+      // Apply built-in + user overrides
+      let user_json = if args.throws_overrides != "" {
+        read_file_sync(args.throws_overrides)
+      } else {
+        ""
+      }
+      let (added, removed) = apply_throws_overrides(
+        mdn_result.throws_map,
+        user_json,
+      )
+      if added > 0 || removed > 0 {
+        println(
+          "Applied throws overrides: +" +
+          added.to_string() +
+          " added, -" +
+          removed.to_string() +
+          " removed",
+        )
+      }
+      let final_size = throws_map_size(mdn_result.throws_map)
+      if final_size > 0 {
+        let throws_maps : Array[(String, ThrowsMap)] = [
+          ("mdn", mdn_result.throws_map),
+        ]
+        inject_throws(definitions, throws_maps)
+      }
+      if mdn_result.not_found > 0 || mdn_result.has_section_but_no_parse > 0 {
         let report_file = path_join(args.output, "throws_not_found.md")
         write_file_sync(report_file, gen_not_found_report(mdn_result))
         println("Writing: " + report_file)

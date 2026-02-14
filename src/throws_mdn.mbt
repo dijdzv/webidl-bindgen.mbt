@@ -149,36 +149,67 @@ fn dedup_entries(entries : Array[MdnLookupEntry]) -> Array[MdnLookupEntry] {
 }
 
 ///|
+fn format_entry_label(entry : MdnLookupEntry) -> String {
+  match entry.entry_type {
+    "constructor" => entry.iface_for_url + ".constructor"
+    "attribute" => entry.iface_for_url + "." + entry.member_name + " (setter)"
+    "static_method" =>
+      entry.iface_for_url + "." + entry.member_name + " (static)"
+    _ => entry.iface_for_url + "." + entry.member_name
+  }
+}
+
+///|
 pub struct MdnThrowsResult {
   throws_map : ThrowsMap
   total_fetched : Int
   not_found : Int
   not_found_entries : Array[String] // "Interface.member" entries with 404
+  has_section_but_no_parse : Int // pages with ### Exceptions but no exceptions extracted
+  has_section_but_no_parse_entries : Array[String]
 }
 
 ///|
-/// Generate a markdown report of MDN 404 entries.
+/// Generate a markdown report of MDN throws diagnostics.
 pub fn gen_not_found_report(result : MdnThrowsResult) -> String {
   let sb = StringBuilder::new()
-  sb.write_string("# MDN Throws: Not Found Report\n\n")
+  sb.write_string("# MDN Throws: Diagnostic Report\n\n")
   sb.write_string(
     "Detected " +
     throws_map_size(result.throws_map).to_string() +
     " throwing members from MDN.\n\n",
   )
-  sb.write_string(
-    result.not_found.to_string() +
-    " / " +
-    result.total_fetched.to_string() +
-    " MDN pages were not found (404).\n",
-  )
-  sb.write_string(
-    "These members may throw but have no MDN documentation page.\n\n",
-  )
-  if result.not_found_entries.length() > 0 {
+  // 404 section
+  if result.not_found > 0 {
+    sb.write_string("## Not Found (404)\n\n")
+    sb.write_string(
+      result.not_found.to_string() +
+      " / " +
+      result.total_fetched.to_string() +
+      " MDN pages were not found.\n",
+    )
+    sb.write_string(
+      "These members may throw but have no MDN documentation page.\n\n",
+    )
     for entry in result.not_found_entries {
       sb.write_string("- " + entry + "\n")
     }
+    sb.write_string("\n")
+  }
+  // Parse failure section
+  if result.has_section_but_no_parse > 0 {
+    sb.write_string("## Exceptions Section Found But Not Parsed\n\n")
+    sb.write_string(
+      result.has_section_but_no_parse.to_string() +
+      " pages have an `### Exceptions` section but no exception names were extracted.\n",
+    )
+    sb.write_string(
+      "This may indicate an unrecognized MDN format that the parser should handle.\n\n",
+    )
+    for entry in result.has_section_but_no_parse_entries {
+      sb.write_string("- " + entry + "\n")
+    }
+    sb.write_string("\n")
   }
   sb.to_string()
 }
@@ -194,6 +225,8 @@ pub async fn build_throws_map_from_mdn(
     total_fetched: 0,
     not_found: 0,
     not_found_entries: [],
+    has_section_but_no_parse: 0,
+    has_section_but_no_parse_entries: [],
   }
   // 1. Build includes map for mixin resolution
   let includes_map = build_includes_map(definitions)
@@ -213,26 +246,24 @@ pub async fn build_throws_map_from_mdn(
   }
   let results = batch_fetch_mdn_promise(urls).wait()
   let count = mdn_results_count(results)
-  // 4. Parse exceptions from each result, track 404s
+  // 4. Parse exceptions from each result, track 404s and parse failures
   let not_found_entries : Array[String] = []
+  let has_section_but_no_parse_entries : Array[String] = []
   for i = 0; i < count; i = i + 1 {
     let content = mdn_result_content(results, i)
     if content == "" {
       let entry = entries[i]
-      let label = match entry.entry_type {
-        "constructor" => entry.iface_for_url + ".constructor"
-        "attribute" =>
-          entry.iface_for_url + "." + entry.member_name + " (setter)"
-        "static_method" =>
-          entry.iface_for_url + "." + entry.member_name + " (static)"
-        _ => entry.iface_for_url + "." + entry.member_name
-      }
-      not_found_entries.push(label)
+      not_found_entries.push(format_entry_label(entry))
       continue
     }
     let exceptions_arr = parse_mdn_exceptions_js(content)
     let exceptions = js_array_to_strings(exceptions_arr)
     if exceptions.length() == 0 {
+      // Page exists but no exceptions parsed — check if section exists
+      if has_exceptions_section(content) {
+        let entry = entries[i]
+        has_section_but_no_parse_entries.push(format_entry_label(entry))
+      }
       continue
     }
     let entry = entries[i]
@@ -254,5 +285,40 @@ pub async fn build_throws_map_from_mdn(
     total_fetched: count,
     not_found: not_found_entries.length(),
     not_found_entries,
+    has_section_but_no_parse: has_section_but_no_parse_entries.length(),
+    has_section_but_no_parse_entries,
   }
+}
+
+///|
+/// Built-in throws overrides. Edit here to add/remove entries MDN doesn't detect.
+let builtin_throws_overrides : String =
+  #|{"add":{"Animation.finish":["InvalidStateError"]},"remove":[]}
+
+///|
+/// Apply throws overrides from a JSON string to the ThrowsMap.
+/// JSON format:
+/// {
+///   "add": { "Interface.method": ["TypeError"], "Interface.attr.setter": ["RangeError"] },
+///   "remove": ["Interface.method", "Interface.attr.setter"]
+/// }
+/// Key convention: "Interface.method", "Interface.constructor", "Interface.attr.setter"
+fn apply_overrides_json(map : ThrowsMap, json_str : String) -> (Int, Int) {
+  let packed = apply_throws_overrides_js(map, json_str)
+  (packed / 1000, packed % 1000)
+}
+
+///|
+/// Apply built-in overrides, then optional user overrides.
+pub fn apply_throws_overrides(
+  map : ThrowsMap,
+  user_overrides : String,
+) -> (Int, Int) {
+  let (a1, r1) = apply_overrides_json(map, builtin_throws_overrides)
+  let (a2, r2) = if user_overrides != "" {
+    apply_overrides_json(map, user_overrides)
+  } else {
+    (0, 0)
+  }
+  (a1 + a2, r1 + r2)
 }
