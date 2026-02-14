@@ -2,14 +2,17 @@
 
 [![npm version](https://img.shields.io/npm/v/webidl-bindgen.mbt.svg)](https://www.npmjs.com/package/webidl-bindgen.mbt)
 
-WebIDL to MoonBit binding generator.
+WebIDL to MoonBit binding generator. Loads all 300+ W3C/WHATWG specifications via `@webref/idl` and generates type-safe MoonBit FFI bindings for JavaScript interop.
+
+Built primarily for [websys.mbt](https://github.com/dijdzv/websys.mbt).
 
 ## Features
 
-- Parse WebIDL files and generate MoonBit FFI bindings
-- Fetch WebIDL directly from W3C specs via `@webref/idl`
-- Generate type-safe bindings for interfaces, dictionaries, enums, and typedefs
-- Support for all 300+ W3C/WHATWG specifications
+- Load all W3C/WHATWG specs via `@webref/idl` and generate per-spec `.mbt` files
+- Type-safe bindings for interfaces, dictionaries, enums, typedefs, and union types
+- Automatic throws detection from MDN content (methods returning `Result[T, JsError]`)
+- Inheritance resolution, mixin merging, and cross-spec type ownership
+- Constructor, static method, getter/setter/deleter, maplike/setlike, iterable support
 
 ## Installation
 
@@ -21,43 +24,16 @@ bun add -g webidl-bindgen.mbt
 
 ## Usage
 
-### Generate bindings for all W3C specs
-
 ```bash
-webidl-bindgen.mbt --all --per-spec -o ./src/
+webidl-bindgen.mbt -o ./src/
 ```
 
-### Single spec
-
-```bash
-webidl-bindgen.mbt --spec html -o ./src/
-```
-
-### Multiple specs
-
-```bash
-webidl-bindgen.mbt --specs html,dom,cssom,fetch -o ./src/
-```
-
-### From local WebIDL file
-
-```bash
-webidl-bindgen.mbt --input canvas2d.webidl -o ./src/
-```
-
-## Options
+### Options
 
 ```
--i, --input <file>      Input WebIDL file
--s, --spec <name>       Single spec from @webref/idl (e.g., html)
-    --specs <list>      Comma-separated list of specs
--a, --all               Load all specs from @webref/idl
-    --per-spec          Output each spec to separate file (with --all or --specs)
--o, --output <dir>      Output directory (default: ./)
--h, --help              Show this help message
+-o, --output <dir>  Output directory (default: ./)
+-h, --help          Show this help message
 ```
-
-Note: `--input`, `--spec`, `--specs`, and `--all` are mutually exclusive.
 
 ## Generated Code
 
@@ -68,6 +44,8 @@ The generator produces MoonBit code with:
 - `pub enum` for WebIDL enums with `to_string`/`from_string` helpers
 - `pub struct` for dictionaries with `default()` and `to_js()` methods
 - `pub type` aliases for typedefs
+- Union types with `from_*` factory functions and `as_*` / `bind_as_*` helpers
+- `Result[T, JsError]` for methods that throw (detected from MDN)
 
 ## Example Output
 
@@ -88,15 +66,6 @@ pub extern "js" fn HTMLElement::set_inner_text(self : HTMLElement, value : Strin
 
 - [webidl2](https://github.com/AliasT/webidl2.js) - WebIDL parser
 - [@webref/idl](https://github.com/nicolo-ribaudo/webref) - W3C spec IDL collection
-
-## Known Limitations
-
-Currently not supported (planned):
-
-- Constructor generation (`new Blob()` etc.)
-- Inheritance (parent interface methods)
-- Static methods (`URL.createObjectURL()`)
-- Special getter/setter/deleter (indexed access)
 
 ## License
 

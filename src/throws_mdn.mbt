@@ -296,29 +296,8 @@ let builtin_throws_overrides : String =
   #|{"add":{"Animation.finish":["InvalidStateError"]},"remove":[]}
 
 ///|
-/// Apply throws overrides from a JSON string to the ThrowsMap.
-/// JSON format:
-/// {
-///   "add": { "Interface.method": ["TypeError"], "Interface.attr.setter": ["RangeError"] },
-///   "remove": ["Interface.method", "Interface.attr.setter"]
-/// }
-/// Key convention: "Interface.method", "Interface.constructor", "Interface.attr.setter"
-fn apply_overrides_json(map : ThrowsMap, json_str : String) -> (Int, Int) {
-  let packed = apply_throws_overrides_js(map, json_str)
+/// Apply built-in overrides to the ThrowsMap.
+pub fn apply_throws_overrides(map : ThrowsMap) -> (Int, Int) {
+  let packed = apply_throws_overrides_js(map, builtin_throws_overrides)
   (packed / 1000, packed % 1000)
-}
-
-///|
-/// Apply built-in overrides, then optional user overrides.
-pub fn apply_throws_overrides(
-  map : ThrowsMap,
-  user_overrides : String,
-) -> (Int, Int) {
-  let (a1, r1) = apply_overrides_json(map, builtin_throws_overrides)
-  let (a2, r2) = if user_overrides != "" {
-    apply_overrides_json(map, user_overrides)
-  } else {
-    (0, 0)
-  }
-  (a1 + a2, r1 + r2)
 }

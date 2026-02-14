@@ -51,17 +51,12 @@ The codebase is a single MoonBit package (`src/`) that compiles to a CLI tool ta
 
 **Enum Handling**: WebIDL enums become MoonBit enums with `to_string`/`from_string` helpers. When passed to JS APIs, they're converted via array index lookup.
 
-**Per-Spec Mode** (`--all --per-spec`): Generates separate `.mbt` files per spec with a `shared.mbt` for common types. Uses type ownership tracking to avoid duplicate definitions.
+**Per-Spec Output**: Generates separate `.mbt` files per spec with a `shared.mbt` for common types. Uses type ownership tracking to avoid duplicate definitions.
+
+**Throws Detection**: Fetches MDN content pages and parses `### Exceptions` sections to detect throwing methods. These are generated as `Result[T, JsError]` return types.
 
 ## CLI Usage
 
 ```bash
-# From local file
-webidl-bindgen.mbt --input canvas2d.webidl -o ./src/
-
-# From W3C spec
-webidl-bindgen.mbt --spec html -o ./src/
-
-# All specs (separate files)
-webidl-bindgen.mbt --all --per-spec -o ./src/
+webidl-bindgen.mbt -o ./src/
 ```
