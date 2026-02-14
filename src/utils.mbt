@@ -386,7 +386,7 @@ pub fn gen_throwing_return_type(
 ///|
 /// Wrap a JS call expression with try-catch for throwing methods.
 /// Returns a JS expression that produces Result[T, E] representation.
-/// Ok = {$tag: 1, _0: value}, Err = {$tag: 0, _0: classified_error}
+/// Ok = {$tag: 0, _0: value}, Err = {$tag: 1, _0: classified_error}
 pub fn wrap_throwing_js_expr(
   js_expr : String,
   return_type : IdlType,
@@ -400,13 +400,13 @@ pub fn wrap_throwing_js_expr(
   if is_void {
     "(() => { try { " +
     js_expr +
-    "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: " +
+    "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: " +
     classify_fn_name +
     "(e) }; } })()"
   } else {
-    "(() => { try { return { $tag: 1, _0: " +
+    "(() => { try { return { $tag: 0, _0: " +
     ok_value +
-    " }; } catch(e) { return { $tag: 0, _0: " +
+    " }; } catch(e) { return { $tag: 1, _0: " +
     classify_fn_name +
     "(e) }; } })()"
   }
@@ -415,13 +415,16 @@ pub fn wrap_throwing_js_expr(
 ///|
 /// Compute throws context for code generation.
 /// Returns (effective_return_type, is_throwing, error_enum_name)
+/// Promise-returning methods are excluded from throws handling
+/// (async errors are expressed as rejections, not synchronous exceptions).
 pub fn compute_throws_context(
   throws : Array[String],
   method_name : String,
   interface_name : String,
   base_return_type : String,
+  idl_return_type? : IdlType = Void,
 ) -> (String, Bool, String) {
-  if throws.length() > 0 {
+  if throws.length() > 0 && not(idl_return_type is Promise(_)) {
     let error_enum_name = gen_error_enum_name(
       method_name,
       interface_prefix=interface_name,

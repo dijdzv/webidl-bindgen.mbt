@@ -45,7 +45,7 @@ struct CliArgs {
   all : Bool // load all specs
   per_spec : Bool // output each spec to separate file
   output : String
-  throws : Bool // enable throws detection from webref algorithms
+  no_throws : Bool // disable throws detection from webref algorithms
   help : Bool
 }
 
@@ -58,15 +58,15 @@ fn parse_args() -> CliArgs {
   let mut all = false
   let mut per_spec = false
   let mut output = "./"
-  let mut throws = false
+  let mut no_throws = false
   let mut help = false
   let mut i = 2 // Skip node and script path
   while i < argc {
     let arg = get_argv_string(i)
     if arg == "--help" || arg == "-h" {
       help = true
-    } else if arg == "--throws" {
-      throws = true
+    } else if arg == "--no-throws" {
+      no_throws = true
     } else if arg == "--input" || arg == "-i" {
       i = i + 1
       if i < argc {
@@ -97,7 +97,7 @@ fn parse_args() -> CliArgs {
     }
     i = i + 1
   }
-  { input, spec, specs, all, per_spec, output, throws, help }
+  { input, spec, specs, all, per_spec, output, no_throws, help }
 }
 
 ///|
@@ -116,7 +116,7 @@ fn print_usage() -> Unit {
     "      --per-spec          Output each spec to separate file (with --all or --specs)",
   )
   println(
-    "      --throws            Detect throws info from webref algorithms (with --spec/--specs/--all)",
+    "      --no-throws         Disable throws detection from webref algorithms",
   )
   println("  -o, --output <dir>      Output directory (default: ./)")
   println("  -h, --help              Show this help message")
@@ -230,8 +230,8 @@ async fn main {
         }
       })
 
-    // Build throws maps if --throws enabled
-    if args.throws {
+    // Build throws maps (enabled by default, disable with --no-throws)
+    if !args.no_throws {
       println("Building throws maps from webref algorithms...")
       let throws_maps : Array[(String, ThrowsMap)] = []
       for result in results {
@@ -500,8 +500,8 @@ async fn main {
   println("Converting to AST...")
   let definitions = convert_to_definitions(parse_result)
 
-  // Build and inject throws info if --throws enabled and using --spec
-  if args.throws && args.spec != "" {
+  // Build and inject throws info (enabled by default for --spec, disable with --no-throws)
+  if !args.no_throws && args.spec != "" {
     println("Building throws map from webref algorithms...")
     let throws_map = build_throws_map(args.spec)
     let map_size = throws_map_size(throws_map)

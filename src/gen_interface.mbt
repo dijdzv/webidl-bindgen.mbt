@@ -143,6 +143,7 @@ pub fn gen_static_operation_with_suffix(
     op.name,
     interface_name,
     idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
   )
   let args_len = op.arguments.length()
   let needs_wrapper = has_dict_args(op.arguments, args_len, dict_map)
@@ -259,6 +260,7 @@ pub fn gen_static_operation_with_arg_count(
     op.name,
     interface_name,
     idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
   )
   let needs_wrapper = has_dict_args(op.arguments, arg_count, dict_map)
 
@@ -492,6 +494,7 @@ pub fn gen_operation(
     op.name,
     interface_name,
     idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
   )
   let args_len = op.arguments.length()
   let needs_wrapper = has_dict_args(op.arguments, args_len, dict_map)
@@ -821,6 +824,7 @@ pub fn gen_operation_with_arg_count(
     op.name,
     interface_name,
     idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
   )
   let needs_wrapper = has_dict_args(op.arguments, arg_count, dict_map)
 
@@ -1327,7 +1331,7 @@ pub fn gen_attribute_setter(
     result.write_string("  #| (self, value) => (() => { try { ")
     result.write_string(assign_expr)
     result.write_string(
-      "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: ",
+      "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
     )
     result.write_string(get_classify_fn_name(error_enum_name))
     result.write_string("(e) }; } })()\n")
@@ -1512,9 +1516,9 @@ pub fn gen_constructor_with_suffix(
     js_call_args.to_string() +
     ")"
   if is_throwing {
-    result.write_string(") => (() => { try { return { $tag: 1, _0: ")
+    result.write_string(") => (() => { try { return { $tag: 0, _0: ")
     result.write_string(js_ctor_expr)
-    result.write_string(" }; } catch(e) { return { $tag: 0, _0: ")
+    result.write_string(" }; } catch(e) { return { $tag: 1, _0: ")
     result.write_string(get_classify_fn_name(error_enum_name))
     result.write_string("(e) }; } })()\n")
   } else {
@@ -1615,9 +1619,9 @@ pub fn gen_constructor_with_arg_count(
     js_call_args.to_string() +
     ")"
   if is_throwing {
-    result.write_string(") => (() => { try { return { $tag: 1, _0: ")
+    result.write_string(") => (() => { try { return { $tag: 0, _0: ")
     result.write_string(js_ctor_expr)
-    result.write_string(" }; } catch(e) { return { $tag: 0, _0: ")
+    result.write_string(" }; } catch(e) { return { $tag: 1, _0: ")
     result.write_string(get_classify_fn_name(error_enum_name))
     result.write_string("(e) }; } })()\n")
   } else {
@@ -2099,7 +2103,9 @@ pub fn gen_interface_binding(
   .each(fn(mem) {
     match mem {
       Operation(op) =>
-        if op.throws.length() > 0 && !op.name.is_empty() {
+        if op.throws.length() > 0 &&
+          !op.name.is_empty() &&
+          not(op.return_type is Promise(_)) {
           let enum_name = gen_error_enum_name(
             op.name,
             interface_prefix=iface.name,
