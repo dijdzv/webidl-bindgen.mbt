@@ -19,6 +19,16 @@ module.exports = async function buildThrowsMap(specName) {
   // Build algorithm graph (direct throws + cross-references)
   const graph = buildAlgorithmGraph(algorithms);
 
+  // Layer 2: Spec HTML bridge
+  // Some algorithms have empty steps in webref (Reffy couldn't extract them).
+  // Fetch spec HTML to fill in missing cross-references and bridge method dfns
+  // to concept algorithms they delegate to.
+  const specUrl = algoData.spec && algoData.spec.url;
+  const specHtml = specUrl ? await fetchText(specUrl) : null;
+  if (specHtml) {
+    graph.augmentFromSpecHtml(specHtml);
+  }
+
   // Map Interface.method -> fragment for algorithms with method-style names
   for (const algo of algorithms) {
     const frag = getFragment(algo.href);
@@ -39,7 +49,7 @@ module.exports = async function buildThrowsMap(specName) {
     }
   }
 
-  // Layer 2: dfns JSON for additional method discovery
+  // Layer 3: dfns JSON + spec HTML bridge for method discovery
   const dfnsData = await fetchJson(
     `https://raw.githubusercontent.com/w3c/webref/main/ed/dfns/${specName}.json`
   );
@@ -62,8 +72,20 @@ module.exports = async function buildThrowsMap(specName) {
       if (map.has(key)) continue; // Already resolved via direct algorithm
 
       const frag = getFragment(dfn.href);
-      if (frag && graph.hasFragment(frag)) {
+      if (!frag) continue;
+
+      // Try direct fragment match (algorithm graph, now augmented with spec HTML refs)
+      if (graph.hasFragment(frag)) {
         const exceptions = graph.resolveThrows(frag);
+        if (exceptions.size > 0) {
+          map.set(key, [...exceptions].sort());
+          continue;
+        }
+      }
+
+      // Spec HTML bridge: find method dfn in spec HTML and follow links to algorithms
+      if (specHtml) {
+        const exceptions = resolveViaSpecHtml(specHtml, frag, graph);
         if (exceptions.size > 0) {
           map.set(key, [...exceptions].sort());
         }
@@ -74,11 +96,46 @@ module.exports = async function buildThrowsMap(specName) {
   return map;
 };
 
+// Find a fragment ID in spec HTML and resolve throws via linked algorithm fragments
+function resolveViaSpecHtml(specHtml, frag, graph) {
+  const exceptions = new Set();
+  const idIdx = specHtml.indexOf(`id="${frag}"`);
+  if (idIdx < 0) return exceptions;
+
+  // Extract from the id to the next closing block element
+  const contextEnd = Math.min(specHtml.length, idIdx + 2000);
+  const context = specHtml.slice(idIdx, contextEnd);
+  const blockEnd = context.search(/<\/(p|dd|li|ol)>/i);
+  const block = blockEnd > 0 ? context.slice(0, blockEnd) : context.slice(0, 500);
+
+  // Find href fragments that point to known algorithms
+  const hrefRegex = /href="#([^"]+)"/g;
+  let m;
+  while ((m = hrefRegex.exec(block)) !== null) {
+    if (graph.hasFragment(m[1])) {
+      for (const ex of graph.resolveThrows(m[1])) {
+        exceptions.add(ex);
+      }
+    }
+  }
+  return exceptions;
+}
+
 async function fetchJson(url) {
   try {
     const resp = await fetch(url);
     if (!resp.ok) return null;
     return resp.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchText(url) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    return resp.text();
   } catch {
     return null;
   }
@@ -117,6 +174,50 @@ function buildAlgorithmGraph(algorithms) {
 
   return {
     hasFragment(frag) { return fragments.has(frag); },
+
+    // Augment graph with references from spec HTML for algorithms with empty steps.
+    // Some algorithms (e.g., "append" in DOM) have empty steps in webref because
+    // Reffy couldn't extract them, but their spec HTML definition contains links
+    // to other algorithm fragments.
+    augmentFromSpecHtml(specHtml) {
+      for (const frag of fragments) {
+        const refs = references.get(frag);
+        // Only augment if this fragment has no references from steps
+        if (refs && refs.size > 0) continue;
+        const dt = directThrows.get(frag);
+        if (dt && dt.size > 0) continue;
+
+        const idIdx = specHtml.indexOf(`id="${frag}"`);
+        if (idIdx < 0) continue;
+
+        // Extract the definition block
+        const contextEnd = Math.min(specHtml.length, idIdx + 2000);
+        const context = specHtml.slice(idIdx, contextEnd);
+        // Look for an <ol> algorithm block after the dfn, or a <p> if one-liner
+        const blockEnd = context.search(/<\/(p|dd|li|ol)>/i);
+        const block = blockEnd > 0 ? context.slice(0, blockEnd) : context.slice(0, 500);
+
+        // Extract throws from the definition text itself
+        const specThrows = extractThrows(block);
+        if (specThrows.size > 0) {
+          directThrows.set(frag, specThrows);
+        }
+
+        // Extract cross-references to other known algorithm fragments
+        const hrefRegex = /href="#([^"]+)"/g;
+        const newRefs = new Set();
+        let m;
+        while ((m = hrefRegex.exec(block)) !== null) {
+          if (m[1] !== frag && fragments.has(m[1])) {
+            newRefs.add(m[1]);
+          }
+        }
+        if (newRefs.size > 0) {
+          references.set(frag, newRefs);
+        }
+      }
+    },
+
     resolveThrows(startFrag) {
       const result = new Set();
       const visited = new Set();
