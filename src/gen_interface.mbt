@@ -369,7 +369,13 @@ pub fn gen_special_operation(
       }
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
-      let return_type = idl_type_to_moonbit(op.return_type)
+      let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+        op.throws,
+        op.name,
+        interface_name,
+        idl_type_to_moonbit(op.return_type),
+        idl_return_type=op.return_type,
+      )
 
       // Determine if index or named based on argument type
       let is_index_getter = match arg.idl_type {
@@ -398,7 +404,12 @@ pub fn gen_special_operation(
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
       let js_expr = "self[" + arg_name + "]"
-      let wrapped = wrap_return_expr(js_expr, op.return_type)
+      let wrapped = wrap_return_or_throwing(
+        js_expr,
+        op.return_type,
+        is_throwing,
+        error_enum_name,
+      )
       result.write_string(") => ")
       result.write_string(wrapped)
       result.write_string("\n")
@@ -417,6 +428,17 @@ pub fn gen_special_operation(
       let index_name = index_arg.name |> to_snake_case |> escape_reserved
       let value_name = value_arg.name |> to_snake_case |> escape_reserved
       let is_index_setter = index_arg.idl_type is Primitive(_)
+      let is_throwing = op.throws.length() > 0
+      let error_enum_name = if is_throwing {
+        gen_error_enum_name(op.name, interface_prefix=interface_name)
+      } else {
+        ""
+      }
+      let return_type = if is_throwing {
+        gen_throwing_return_type("Unit", error_enum_name)
+      } else {
+        "Unit"
+      }
       let result = StringBuilder::new()
       if is_index_setter {
         result.write_string("#alias(\"_[_]=_\")\n")
@@ -433,16 +455,31 @@ pub fn gen_special_operation(
       result.write_string(value_name)
       result.write_string(" : ")
       result.write_string(value_type)
-      result.write_string(") -> Unit =\n")
-      result.write_string("  #| (self, ")
-      result.write_string(index_name)
-      result.write_string(", ")
-      result.write_string(value_name)
-      result.write_string(") => { self[")
-      result.write_string(index_name)
-      result.write_string("] = ")
-      result.write_string(value_name)
-      result.write_string(" }\n")
+      result.write_string(") -> ")
+      result.write_string(return_type)
+      result.write_string(" =\n")
+      let assign_expr = "self[" + index_name + "] = " + value_name
+      if is_throwing {
+        result.write_string("  #| (self, ")
+        result.write_string(index_name)
+        result.write_string(", ")
+        result.write_string(value_name)
+        result.write_string(") => (() => { try { ")
+        result.write_string(assign_expr)
+        result.write_string(
+          "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
+        )
+        result.write_string(get_classify_fn_name(error_enum_name))
+        result.write_string("(e) }; } })()\n")
+      } else {
+        result.write_string("  #| (self, ")
+        result.write_string(index_name)
+        result.write_string(", ")
+        result.write_string(value_name)
+        result.write_string(") => { ")
+        result.write_string(assign_expr)
+        result.write_string(" }\n")
+      }
       result.to_string()
     }
     "deleter" => {
@@ -454,6 +491,17 @@ pub fn gen_special_operation(
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
       let arg_name = arg.name |> to_snake_case |> escape_reserved
+      let is_throwing = op.throws.length() > 0
+      let error_enum_name = if is_throwing {
+        gen_error_enum_name(op.name, interface_prefix=interface_name)
+      } else {
+        ""
+      }
+      let return_type = if is_throwing {
+        gen_throwing_return_type("Unit", error_enum_name)
+      } else {
+        "Unit"
+      }
       let result = StringBuilder::new()
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -463,12 +511,27 @@ pub fn gen_special_operation(
       result.write_string(arg_name)
       result.write_string(" : ")
       result.write_string(arg_type)
-      result.write_string(") -> Unit =\n")
-      result.write_string("  #| (self, ")
-      result.write_string(arg_name)
-      result.write_string(") => { delete self[")
-      result.write_string(arg_name)
-      result.write_string("] }\n")
+      result.write_string(") -> ")
+      result.write_string(return_type)
+      result.write_string(" =\n")
+      let delete_expr = "delete self[" + arg_name + "]"
+      if is_throwing {
+        result.write_string("  #| (self, ")
+        result.write_string(arg_name)
+        result.write_string(") => (() => { try { ")
+        result.write_string(delete_expr)
+        result.write_string(
+          "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
+        )
+        result.write_string(get_classify_fn_name(error_enum_name))
+        result.write_string("(e) }; } })()\n")
+      } else {
+        result.write_string("  #| (self, ")
+        result.write_string(arg_name)
+        result.write_string(") => { ")
+        result.write_string(delete_expr)
+        result.write_string(" }\n")
+      }
       result.to_string()
     }
     _ => ""
