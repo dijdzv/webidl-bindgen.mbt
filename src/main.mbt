@@ -45,6 +45,7 @@ struct CliArgs {
   all : Bool // load all specs
   per_spec : Bool // output each spec to separate file
   output : String
+  throws : Bool // enable throws detection from webref algorithms
   help : Bool
 }
 
@@ -57,12 +58,15 @@ fn parse_args() -> CliArgs {
   let mut all = false
   let mut per_spec = false
   let mut output = "./"
+  let mut throws = false
   let mut help = false
   let mut i = 2 // Skip node and script path
   while i < argc {
     let arg = get_argv_string(i)
     if arg == "--help" || arg == "-h" {
       help = true
+    } else if arg == "--throws" {
+      throws = true
     } else if arg == "--input" || arg == "-i" {
       i = i + 1
       if i < argc {
@@ -93,7 +97,7 @@ fn parse_args() -> CliArgs {
     }
     i = i + 1
   }
-  { input, spec, specs, all, per_spec, output, help }
+  { input, spec, specs, all, per_spec, output, throws, help }
 }
 
 ///|
@@ -110,6 +114,9 @@ fn print_usage() -> Unit {
   println("  -a, --all               Load all specs from @webref/idl")
   println(
     "      --per-spec          Output each spec to separate file (with --all or --specs)",
+  )
+  println(
+    "      --throws            Detect throws info from webref algorithms (with --spec/--specs/--all)",
   )
   println("  -o, --output <dir>      Output directory (default: ./)")
   println("  -h, --help              Show this help message")
@@ -222,6 +229,37 @@ async fn main {
           count
         }
       })
+
+    // Build throws maps if --throws enabled
+    if args.throws {
+      println("Building throws maps from webref algorithms...")
+      let throws_maps : Array[(String, ThrowsMap)] = []
+      for result in results {
+        if result.success {
+          let throws_map = build_throws_map(result.spec_name)
+          let map_size = throws_map_size(throws_map)
+          if map_size > 0 {
+            throws_maps.push((result.spec_name, throws_map))
+            println(
+              "  " +
+              result.spec_name +
+              ": " +
+              map_size.to_string() +
+              " throwing methods detected",
+            )
+          }
+        }
+      }
+      println(
+        "Throws maps built for " + throws_maps.length().to_string() + " specs",
+      )
+      // Inject throws into all definitions
+      for result in results {
+        if result.success {
+          inject_throws(result.definitions, throws_maps)
+        }
+      }
+    }
 
     // Per-spec mode: output each spec to separate file
     if args.per_spec {
@@ -461,6 +499,20 @@ async fn main {
   // Convert to AST
   println("Converting to AST...")
   let definitions = convert_to_definitions(parse_result)
+
+  // Build and inject throws info if --throws enabled and using --spec
+  if args.throws && args.spec != "" {
+    println("Building throws map from webref algorithms...")
+    let throws_map = build_throws_map(args.spec)
+    let map_size = throws_map_size(throws_map)
+    if map_size > 0 {
+      println("Detected " + map_size.to_string() + " throwing methods")
+      let throws_maps : Array[(String, ThrowsMap)] = [(args.spec, throws_map)]
+      inject_throws(definitions, throws_maps)
+    } else {
+      println("No throwing methods detected")
+    }
+  }
 
   // Generate output
   println("Generating MoonBit code...")

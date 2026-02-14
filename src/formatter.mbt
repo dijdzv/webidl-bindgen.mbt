@@ -417,6 +417,20 @@ pub fn gen_file_header_with_exclude(
     "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
   )
 
+  // JsError type for typed exception handling
+  result.write_string(
+    "/// JavaScript error object for typed exception handling\n",
+  )
+  result.write_string("pub type JsError\n\n")
+  result.write_string(
+    "pub extern \"js\" fn JsError::message(self : JsError) -> String =\n",
+  )
+  result.write_string("  #| (self) => String(self)\n\n")
+  result.write_string(
+    "pub extern \"js\" fn JsError::name(self : JsError) -> String =\n",
+  )
+  result.write_string("  #| (self) => (self && self.name) || ''\n\n")
+
   //Output external types by category (only output header if types exist)
   ignore(
     external_header_types
@@ -912,6 +926,20 @@ pub fn gen_shared_types_with_externals(
   .write_string(
     "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
   )
+
+  // JsError type for typed exception handling
+  result.write_string(
+    "/// JavaScript error object for typed exception handling\n",
+  )
+  result.write_string("pub type JsError\n\n")
+  result.write_string(
+    "pub extern \"js\" fn JsError::message(self : JsError) -> String =\n",
+  )
+  result.write_string("  #| (self) => String(self)\n\n")
+  result.write_string(
+    "pub extern \"js\" fn JsError::name(self : JsError) -> String =\n",
+  )
+  result.write_string("  #| (self) => (self && self.name) || ''\n\n")
 
   //External type declarations
   if external_types.length() > 0 {

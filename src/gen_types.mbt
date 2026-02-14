@@ -1300,3 +1300,64 @@ fn gen_from_js_nullable_field_expr(
   payload +
   " })"
 }
+
+///|
+/// Generate error enum + classify FFI for throwing methods.
+/// exceptions: sorted list of exception names (e.g., ["HierarchyRequestError", "NotFoundError"])
+/// Returns the MoonBit code for the enum definition + classify function.
+pub fn gen_error_enum(enum_name : String, exceptions : Array[String]) -> String {
+  let result = StringBuilder::new()
+  // Segment marker
+  result.write_string("///|\n")
+  result.write_string("/// Error type for throwing methods\n")
+  result.write_string("pub(all) enum ")
+  result.write_string(enum_name)
+  result.write_string(" {\n")
+  // Sorted exception variants
+  let sorted = exceptions.copy()
+  sorted.sort()
+  sorted
+  .iter()
+  .each(fn(ex) {
+    result.write_string("  ")
+    result.write_string(ex)
+    result.write_string("(JsError)\n")
+  })
+  // OtherError catch-all (always last)
+  result.write_string("  OtherError(JsError)\n")
+  result.write_string("}\n\n")
+  // Classify FFI function
+  let classify_name = get_classify_fn_name(enum_name)
+  result.write_string("extern \"js\" fn ")
+  result.write_string(classify_name)
+  result.write_string("(e : JsError) -> ")
+  result.write_string(enum_name)
+  result.write_string(" =\n")
+  result.write_string("  #| (e) => {\n")
+  result.write_string("  #|   const n = (e && e.name) || '';\n")
+  // Generate if-else chain for each exception (sorted for consistent $tag ordering)
+  sorted
+  .iter()
+  .fold(init=0, fn(tag, ex) {
+    result.write_string("  #|   if (n === '")
+    result.write_string(ex)
+    result.write_string("') return { $tag: ")
+    result.write_string(tag.to_string())
+    result.write_string(", _0: e };\n")
+    tag + 1
+  })
+  |> ignore
+  // OtherError is the last variant
+  result.write_string("  #|   return { $tag: ")
+  result.write_string(sorted.length().to_string())
+  result.write_string(", _0: e };\n")
+  result.write_string("  #| }\n\n")
+  result.to_string()
+}
+
+///|
+/// Get classify function name from error enum name.
+/// "SetAttributeError" -> "classify_set_attribute_error"
+pub fn get_classify_fn_name(enum_name : String) -> String {
+  "classify_" + to_snake_case(enum_name)
+}

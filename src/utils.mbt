@@ -355,3 +355,102 @@ pub fn primitive_to_moonbit(name : String) -> String {
     }
   }
 }
+
+///|
+/// Generate error enum name from method name.
+/// "setAttribute" -> "SetAttributeError"
+/// If interface_prefix is provided: "ElementSetAttributeError"
+pub fn gen_error_enum_name(
+  method_name : String,
+  interface_prefix? : String = "",
+) -> String {
+  let pascal = to_pascal_case(method_name)
+  if interface_prefix == "" {
+    pascal + "Error"
+  } else {
+    interface_prefix + pascal + "Error"
+  }
+}
+
+///|
+/// Generate the MoonBit return type for a throwing method.
+/// Non-void: Result[ReturnType, ErrorEnumName]
+/// Void: Result[Unit, ErrorEnumName]
+pub fn gen_throwing_return_type(
+  return_type : String,
+  error_enum_name : String,
+) -> String {
+  "Result[" + return_type + ", " + error_enum_name + "]"
+}
+
+///|
+/// Wrap a JS call expression with try-catch for throwing methods.
+/// Returns a JS expression that produces Result[T, E] representation.
+/// Ok = {$tag: 1, _0: value}, Err = {$tag: 0, _0: classified_error}
+pub fn wrap_throwing_js_expr(
+  js_expr : String,
+  return_type : IdlType,
+  classify_fn_name : String,
+) -> String {
+  let ok_value = match return_type {
+    Void => "undefined"
+    _ => wrap_return_expr(js_expr, return_type)
+  }
+  let is_void = return_type is Void
+  if is_void {
+    "(() => { try { " +
+    js_expr +
+    "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: " +
+    classify_fn_name +
+    "(e) }; } })()"
+  } else {
+    "(() => { try { return { $tag: 1, _0: " +
+    ok_value +
+    " }; } catch(e) { return { $tag: 0, _0: " +
+    classify_fn_name +
+    "(e) }; } })()"
+  }
+}
+
+///|
+/// Compute throws context for code generation.
+/// Returns (effective_return_type, is_throwing, error_enum_name)
+pub fn compute_throws_context(
+  throws : Array[String],
+  method_name : String,
+  interface_name : String,
+  base_return_type : String,
+) -> (String, Bool, String) {
+  if throws.length() > 0 {
+    let error_enum_name = gen_error_enum_name(
+      method_name,
+      interface_prefix=interface_name,
+    )
+    (
+      gen_throwing_return_type(base_return_type, error_enum_name),
+      true,
+      error_enum_name,
+    )
+  } else {
+    (base_return_type, false, "")
+  }
+}
+
+///|
+/// Wrap JS expression with throws handling if needed.
+pub fn wrap_return_or_throwing(
+  js_expr : String,
+  return_type : IdlType,
+  is_throwing : Bool,
+  error_enum_name : String,
+) -> String {
+  if is_throwing {
+    wrap_throwing_js_expr(
+      js_expr,
+      return_type,
+      get_classify_fn_name(error_enum_name),
+    )
+  } else {
+    wrap_return_expr(js_expr, return_type)
+  }
+}

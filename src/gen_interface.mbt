@@ -138,7 +138,12 @@ pub fn gen_static_operation_with_suffix(
   }
   let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let fn_name = if suffix == "" { base_fn_name } else { base_fn_name + suffix }
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+  )
   let args_len = op.arguments.length()
   let needs_wrapper = has_dict_args(op.arguments, args_len, dict_map)
 
@@ -204,7 +209,12 @@ pub fn gen_static_operation_with_suffix(
     js_call_args.to_string() +
     ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    error_enum_name,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -244,7 +254,12 @@ pub fn gen_static_operation_with_arg_count(
   } else {
     base_fn_name + fn_suffix
   }
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+  )
   let needs_wrapper = has_dict_args(op.arguments, arg_count, dict_map)
 
   // Generate argument list (without self, up to arg_count)
@@ -309,7 +324,12 @@ pub fn gen_static_operation_with_arg_count(
     js_call_args.to_string() +
     ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    error_enum_name,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -467,7 +487,12 @@ pub fn gen_operation(
     return ""
   }
   let fn_name = op.name |> to_snake_case |> escape_reserved
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+  )
   let args_len = op.arguments.length()
   let needs_wrapper = has_dict_args(op.arguments, args_len, dict_map)
 
@@ -527,7 +552,12 @@ pub fn gen_operation(
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    error_enum_name,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -786,7 +816,12 @@ pub fn gen_operation_with_arg_count(
   } else {
     base_fn_name + "_" + fn_suffix
   }
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+  )
   let needs_wrapper = has_dict_args(op.arguments, arg_count, dict_map)
 
   // Generate argument list (up to arg_count)
@@ -845,7 +880,12 @@ pub fn gen_operation_with_arg_count(
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    error_enum_name,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -1249,6 +1289,17 @@ pub fn gen_attribute_setter(
   }
   let fn_name = "set_" + to_snake_case(attr.name)
   let value_type = idl_type_to_moonbit(attr.idl_type)
+  let is_throwing = attr.setter_throws.length() > 0
+  let error_enum_name = if is_throwing {
+    gen_error_enum_name("set_" + attr.name, interface_prefix=interface_name)
+  } else {
+    ""
+  }
+  let return_type_str = if is_throwing {
+    gen_throwing_return_type("Unit", error_enum_name)
+  } else {
+    "Unit"
+  }
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
   result.write_string(interface_name)
@@ -1258,36 +1309,32 @@ pub fn gen_attribute_setter(
   result.write_string(interface_name)
   result.write_string(", value : ")
   result.write_string(value_type)
-  result.write_string(") -> Unit =\n")
-  // Enum setter: MoonBit passes integer index, JS expects string → array lookup
-  match attr.idl_type {
+  result.write_string(") -> ")
+  result.write_string(return_type_str)
+  result.write_string(" =\n")
+  // Compute the JS value expression for setter
+  let value_expr = match attr.idl_type {
     Named(type_name) =>
       match lookup_enum(enum_map, type_name) {
-        Some(values) => {
-          result.write_string("  #| (self, value) => { self.")
-          result.write_string(attr.name)
-          result.write_string(" = ")
-          result.write_string(gen_enum_array_lookup(values, "value"))
-          result.write_string(" }\n")
-        }
-        None => {
-          result.write_string("  #| (self, value) => { self.")
-          result.write_string(attr.name)
-          result.write_string(" = value }\n")
-        }
+        Some(values) => gen_enum_array_lookup(values, "value")
+        None => "value"
       }
-    Nullable(Named(_)) => {
-      result.write_string("  #| (self, value) => { self.")
-      result.write_string(attr.name)
-      result.write_string(" = ")
-      result.write_string(unwrap_option_named_param("value"))
-      result.write_string(" }\n")
-    }
-    _ => {
-      result.write_string("  #| (self, value) => { self.")
-      result.write_string(attr.name)
-      result.write_string(" = value }\n")
-    }
+    Nullable(Named(_)) => unwrap_option_named_param("value")
+    _ => "value"
+  }
+  let assign_expr = "self." + attr.name + " = " + value_expr
+  if is_throwing {
+    result.write_string("  #| (self, value) => (() => { try { ")
+    result.write_string(assign_expr)
+    result.write_string(
+      "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: ",
+    )
+    result.write_string(get_classify_fn_name(error_enum_name))
+    result.write_string("(e) }; } })()\n")
+  } else {
+    result.write_string("  #| (self, value) => { ")
+    result.write_string(assign_expr)
+    result.write_string(" }\n")
   }
   result.to_string()
 }
@@ -1397,7 +1444,12 @@ pub fn gen_constructor_with_suffix(
   suffix : String,
   dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  let return_type = interface_name
+  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+    ctor.throws,
+    "constructor",
+    interface_name,
+    interface_name,
+  )
   let args_len = ctor.arguments.length()
   let needs_wrapper = has_dict_args(ctor.arguments, args_len, dict_map)
 
@@ -1454,11 +1506,22 @@ pub fn gen_constructor_with_suffix(
     }
     result.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
-  result.write_string(") => new ")
-  result.write_string(interface_name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  let js_ctor_expr = "new " +
+    interface_name +
+    "(" +
+    js_call_args.to_string() +
+    ")"
+  if is_throwing {
+    result.write_string(") => (() => { try { return { $tag: 1, _0: ")
+    result.write_string(js_ctor_expr)
+    result.write_string(" }; } catch(e) { return { $tag: 0, _0: ")
+    result.write_string(get_classify_fn_name(error_enum_name))
+    result.write_string("(e) }; } })()\n")
+  } else {
+    result.write_string(") => ")
+    result.write_string(js_ctor_expr)
+    result.write_string("\n")
+  }
   if needs_wrapper {
     let full_fn_name = interface_name + "::new" + suffix
     gen_dict_wrapper(
@@ -1486,7 +1549,12 @@ pub fn gen_constructor_with_arg_count(
   suffix : String,
   dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  let return_type = interface_name
+  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+    ctor.throws,
+    "constructor",
+    interface_name,
+    interface_name,
+  )
   let needs_wrapper = has_dict_args(ctor.arguments, arg_count, dict_map)
 
   // Generate argument list (up to arg_count)
@@ -1541,11 +1609,22 @@ pub fn gen_constructor_with_arg_count(
     }
     result.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
-  result.write_string(") => new ")
-  result.write_string(interface_name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  let js_ctor_expr = "new " +
+    interface_name +
+    "(" +
+    js_call_args.to_string() +
+    ")"
+  if is_throwing {
+    result.write_string(") => (() => { try { return { $tag: 1, _0: ")
+    result.write_string(js_ctor_expr)
+    result.write_string(" }; } catch(e) { return { $tag: 0, _0: ")
+    result.write_string(get_classify_fn_name(error_enum_name))
+    result.write_string("(e) }; } })()\n")
+  } else {
+    result.write_string(") => ")
+    result.write_string(js_ctor_expr)
+    result.write_string("\n")
+  }
   if needs_wrapper {
     let full_fn_name = interface_name + "::new" + suffix
     gen_dict_wrapper(
@@ -2012,6 +2091,49 @@ pub fn gen_interface_binding(
 
   // Generate downcast methods (parent -> child)
   result.write_string(gen_downcast_methods(iface, inheritance_map))
+
+  // Pre-generate error enums for throwing members
+  let generated_error_enums : Array[String] = []
+  iface.members
+  .iter()
+  .each(fn(mem) {
+    match mem {
+      Operation(op) =>
+        if op.throws.length() > 0 && !op.name.is_empty() {
+          let enum_name = gen_error_enum_name(
+            op.name,
+            interface_prefix=iface.name,
+          )
+          if !generated_error_enums.contains(enum_name) {
+            generated_error_enums.push(enum_name)
+            result.write_string(gen_error_enum(enum_name, op.throws))
+          }
+        }
+      Constructor(ctor) =>
+        if ctor.throws.length() > 0 {
+          let enum_name = gen_error_enum_name(
+            "constructor",
+            interface_prefix=iface.name,
+          )
+          if !generated_error_enums.contains(enum_name) {
+            generated_error_enums.push(enum_name)
+            result.write_string(gen_error_enum(enum_name, ctor.throws))
+          }
+        }
+      Attribute(attr) =>
+        if attr.setter_throws.length() > 0 {
+          let enum_name = gen_error_enum_name(
+            "set_" + attr.name,
+            interface_prefix=iface.name,
+          )
+          if !generated_error_enums.contains(enum_name) {
+            generated_error_enums.push(enum_name)
+            result.write_string(gen_error_enum(enum_name, attr.setter_throws))
+          }
+        }
+      _ => ()
+    }
+  })
 
   // Track generated method names to avoid duplicates
   let generated_methods : Array[String] = []

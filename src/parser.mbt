@@ -356,6 +356,7 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
         } else {
           Some(special_val)
         },
+        throws: [],
       }
       Operation(op)
     }
@@ -364,6 +365,7 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
         name: get_name(js_mem),
         idl_type: convert_idl_type(get_idl_type(js_mem)),
         is_readonly: is_readonly(js_mem),
+        setter_throws: [],
       }
       Attribute(attr)
     }
@@ -397,7 +399,7 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
         args.push(arg)
         i = i + 1
       }
-      let ctor : ConstructorDef = { arguments: args }
+      let ctor : ConstructorDef = { arguments: args, throws: [] }
       Constructor(ctor)
     }
     "maplike" => {
@@ -454,6 +456,7 @@ fn convert_interface_member(js_mem : JsValue) -> InterfaceMember {
         return_type: Void,
         arguments: [],
         special: None,
+        throws: [],
       }
       Operation(op)
     }

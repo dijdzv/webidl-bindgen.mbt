@@ -96,6 +96,7 @@ pub struct OperationDef {
   return_type : IdlType
   arguments : Array[Argument]
   special : String? // getter, setter, etc.
+  throws : Array[String] // exception names (empty = doesn't throw)
 }
 
 ///|
@@ -104,6 +105,7 @@ pub struct AttributeDef {
   name : String
   idl_type : IdlType
   is_readonly : Bool
+  setter_throws : Array[String] // exception names for setter
 }
 
 ///|
@@ -120,6 +122,7 @@ pub struct Argument {
 /// Constructor definition
 pub struct ConstructorDef {
   arguments : Array[Argument]
+  throws : Array[String] // exception names (empty = doesn't throw)
 }
 
 ///|
