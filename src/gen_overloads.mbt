@@ -323,9 +323,9 @@ fn gen_constructor_union_arg_overloads(
       ")"
     if is_throwing {
       result.write_string(
-        ") => (() => { try { return { $tag: 0, _0: " +
+        ") => (() => { try { return { $tag: 1, _0: " +
         js_ctor_expr +
-        " }; } catch(e) { return { $tag: 1, _0: " +
+        " }; } catch(e) { return { $tag: 0, _0: " +
         gen_inline_classify_js(ctor.throws) +
         " }; } })()\n\n",
       )

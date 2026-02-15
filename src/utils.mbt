@@ -395,7 +395,7 @@ pub fn gen_throwing_return_type(
 ///|
 /// Wrap a JS call expression with try-catch for throwing methods.
 /// Returns a JS expression that produces Result[T, E] representation.
-/// Ok = {$tag: 0, _0: value}, Err = {$tag: 1, _0: classified_error}
+/// Ok = {$tag: 1, _0: value}, Err = {$tag: 0, _0: classified_error}
 pub fn wrap_throwing_js_expr(
   js_expr : String,
   return_type : IdlType,
@@ -410,13 +410,13 @@ pub fn wrap_throwing_js_expr(
   if is_void {
     "(() => { try { " +
     js_expr +
-    "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: " +
+    "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: " +
     classify +
     " }; } })()"
   } else {
-    "(() => { try { return { $tag: 0, _0: " +
+    "(() => { try { return { $tag: 1, _0: " +
     ok_value +
-    " }; } catch(e) { return { $tag: 1, _0: " +
+    " }; } catch(e) { return { $tag: 0, _0: " +
     classify +
     " }; } })()"
   }
@@ -425,7 +425,7 @@ pub fn wrap_throwing_js_expr(
 ///|
 /// Wrap a Promise JS call expression with .then().catch() for throwing methods.
 /// Returns a JS expression that produces Promise[Result[T, E]] representation.
-/// Ok = {$tag: 0, _0: value}, Err = {$tag: 1, _0: classified_error}
+/// Ok = {$tag: 1, _0: value}, Err = {$tag: 0, _0: classified_error}
 pub fn wrap_promise_throwing_js_expr(
   js_expr : String,
   inner_type : IdlType,
@@ -433,16 +433,16 @@ pub fn wrap_promise_throwing_js_expr(
 ) -> String {
   let classify = gen_inline_classify_js(exceptions)
   let ok_value = match inner_type {
-    Void => "({ $tag: 0, _0: undefined })"
+    Void => "({ $tag: 1, _0: undefined })"
     _ => {
       let inner_wrapped = wrap_return_expr("v", inner_type)
-      "({ $tag: 0, _0: " + inner_wrapped + " })"
+      "({ $tag: 1, _0: " + inner_wrapped + " })"
     }
   }
   js_expr +
   ".then(v => " +
   ok_value +
-  ").catch(e => ({ $tag: 1, _0: " +
+  ").catch(e => ({ $tag: 0, _0: " +
   classify +
   " }))"
 }

@@ -467,7 +467,7 @@ pub fn gen_special_operation(
         result.write_string(") => (() => { try { ")
         result.write_string(assign_expr)
         result.write_string(
-          "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
+          "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: ",
         )
         result.write_string(gen_inline_classify_js(op.throws))
         result.write_string(" }; } })()\n")
@@ -521,7 +521,7 @@ pub fn gen_special_operation(
         result.write_string(") => (() => { try { ")
         result.write_string(delete_expr)
         result.write_string(
-          "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
+          "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: ",
         )
         result.write_string(gen_inline_classify_js(op.throws))
         result.write_string(" }; } })()\n")
@@ -1394,7 +1394,7 @@ pub fn gen_attribute_setter(
     result.write_string("  #| (self, value) => (() => { try { ")
     result.write_string(assign_expr)
     result.write_string(
-      "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
+      "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: ",
     )
     result.write_string(gen_inline_classify_js(attr.setter_throws))
     result.write_string(" }; } })()\n")
@@ -1579,9 +1579,9 @@ pub fn gen_constructor_with_suffix(
     js_call_args.to_string() +
     ")"
   if is_throwing {
-    result.write_string(") => (() => { try { return { $tag: 0, _0: ")
+    result.write_string(") => (() => { try { return { $tag: 1, _0: ")
     result.write_string(js_ctor_expr)
-    result.write_string(" }; } catch(e) { return { $tag: 1, _0: ")
+    result.write_string(" }; } catch(e) { return { $tag: 0, _0: ")
     result.write_string(gen_inline_classify_js(ctor.throws))
     result.write_string(" }; } })()\n")
   } else {
@@ -1682,9 +1682,9 @@ pub fn gen_constructor_with_arg_count(
     js_call_args.to_string() +
     ")"
   if is_throwing {
-    result.write_string(") => (() => { try { return { $tag: 0, _0: ")
+    result.write_string(") => (() => { try { return { $tag: 1, _0: ")
     result.write_string(js_ctor_expr)
-    result.write_string(" }; } catch(e) { return { $tag: 1, _0: ")
+    result.write_string(" }; } catch(e) { return { $tag: 0, _0: ")
     result.write_string(gen_inline_classify_js(ctor.throws))
     result.write_string(" }; } })()\n")
   } else {
