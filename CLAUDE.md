@@ -55,6 +55,29 @@ The codebase is a single MoonBit package (`src/`) that compiles to a CLI tool ta
 
 **Throws Detection**: Fetches MDN content pages and parses `### Exceptions` sections to detect throwing methods. These are generated as `Result[T, JsError]` return types.
 
+## Release (moon-release)
+
+[moon-release](https://github.com/dijdzv/moon-release) によるリリース自動化を使用。
+
+### Conventional Commits
+
+コミットメッセージは **Conventional Commits** 形式に従うこと:
+
+| Type | Version Bump | Example |
+|---|---|---|
+| `feat:` | Minor (0.x.0) | `feat: add new feature` |
+| `fix:` | Patch (0.0.x) | `fix: resolve bug` |
+| `feat!:` / `fix!:` | Major (x.0.0) | `feat!: breaking change` |
+
+- `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore` はバージョンバンプ**しない**
+- コミットの影響範囲に応じて適切な type を選択すること
+
+### リリースフロー
+
+1. main ブランチへの push で release PR が自動作成・更新される
+2. release PR を **squash merge** すると、タグ作成・GitHub Release・npm publish が実行される
+3. release PR のタイトルは `chore: release v{{ version }}` 形式（自動生成）
+
 ## CLI Usage
 
 ```bash
