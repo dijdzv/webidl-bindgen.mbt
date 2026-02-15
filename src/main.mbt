@@ -107,9 +107,8 @@ async fn main {
 
   // Build throws map from MDN
   let all_defs = merge_all_results(results)
-  process_stdout_write("  Fetching MDN metadata... ")
+  println("  Fetching MDN metadata...")
   let mdn_result = build_throws_map_from_mdn(all_defs)
-  println("done")
   println("")
 
   // MDN detection results

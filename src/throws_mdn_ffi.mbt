@@ -8,20 +8,30 @@ extern "js" fn batch_fetch_mdn_promise(
 ) -> @js_async.Promise[JsValue] =
   #| (urls) => {
   #|   const CONCURRENCY = 50;
-  #|   const results = new Array(urls.length).fill('');
-  #|   let idx = 0;
+  #|   const total = urls.length;
+  #|   const results = new Array(total).fill('');
+  #|   let idx = 0, done = 0;
+  #|   const update = () => {
+  #|     process.stdout.write(`\r    Fetching ${done}/${total} pages...`);
+  #|   };
+  #|   update();
   #|   async function worker() {
-  #|     while (idx < urls.length) {
+  #|     while (idx < total) {
   #|       const i = idx++;
   #|       try {
   #|         const r = await fetch(urls[i]);
   #|         if (r.ok) results[i] = await r.text();
   #|       } catch {}
+  #|       done++;
+  #|       if (done % 50 === 0 || done === total) update();
   #|     }
   #|   }
   #|   const workers = [];
-  #|   for (let w = 0; w < Math.min(CONCURRENCY, urls.length); w++) workers.push(worker());
-  #|   return Promise.all(workers).then(() => results);
+  #|   for (let w = 0; w < Math.min(CONCURRENCY, total); w++) workers.push(worker());
+  #|   return Promise.all(workers).then(() => {
+  #|     process.stdout.write('\r' + ' '.repeat(40) + '\r');
+  #|     return results;
+  #|   });
   #| }
 
 ///|
