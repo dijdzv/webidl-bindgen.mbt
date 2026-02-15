@@ -23,6 +23,10 @@ extern "js" fn mkdir_sync(path : String) -> Unit =
 extern "js" fn path_join(a : String, b : String) -> String =
   #| (a, b) => require('path').join(a, b)
 
+///|
+extern "js" fn process_stdout_write(s : String) -> Unit =
+  #| (s) => process.stdout.write(s)
+
 // CLI argument structure
 
 ///|
@@ -72,81 +76,92 @@ async fn main {
     return
   }
 
+  println("")
+  println("  webidl-bindgen.mbt")
+  println("")
+
   // Create output directory
   mkdir_sync(args.output)
 
   // Load all specs from @webref/idl
   let webref_specs = list_all_specs()
-  println("Loading all specs from @webref/idl...")
   let spec_names = get_all_spec_names(webref_specs)
-  println("Processing " + spec_names.length().to_string() + " specs...")
-  let results = load_multiple_specs(webref_specs, spec_names, true)
+  process_stdout_write(
+    "  Loading @webref/idl specs... ",
+  )
+  let results = load_multiple_specs(webref_specs, spec_names, false)
+  println(spec_names.length().to_string() + " specs")
 
   // Report errors
+  let mut error_count = 0
   for result in results {
     if !result.success {
-      println("Warning: " + result.error_message)
+      error_count = error_count + 1
     }
+  }
+  if error_count > 0 {
+    println(
+      "  Warnings: " + error_count.to_string() + " specs failed to parse",
+    )
   }
 
   // Build throws map from MDN
-  println("Building throws map from MDN content...")
   let all_defs = merge_all_results(results)
+  process_stdout_write("  Fetching MDN metadata... ")
   let mdn_result = build_throws_map_from_mdn(all_defs)
-  let map_size = throws_map_size(mdn_result.throws_map)
+  println("done")
+  println("")
+
+  // MDN detection results
+  let throws_count = throws_map_size(mdn_result.throws_map)
   println(
-    "Detected " +
-    map_size.to_string() +
-    " throwing members from MDN (" +
-    mdn_result.not_found.to_string() +
-    "/" +
-    mdn_result.total_fetched.to_string() +
-    " pages not found)",
+    "    Throws:      " +
+    throws_count.to_string() +
+    " members",
   )
-  if mdn_result.deprecated_set.length() > 0 {
-    println(
-      "Detected " +
-      mdn_result.deprecated_set.length().to_string() +
-      " deprecated members",
-    )
-  }
-  if mdn_result.event_type_map.length() > 0 {
-    println(
-      "Detected " +
-      mdn_result.event_type_map.length().to_string() +
-      " typed event handlers",
-    )
-  }
-  if mdn_result.has_section_but_no_parse > 0 {
-    println(
-      "Warning: " +
-      mdn_result.has_section_but_no_parse.to_string() +
-      " pages have ### Exceptions section but no exceptions were parsed",
-    )
-  }
-  // Apply built-in event type overrides
+  println(
+    "    Deprecated:  " +
+    mdn_result.deprecated_set.length().to_string() +
+    " members",
+  )
+
+  // Apply event type overrides
   let event_overrides_added = apply_event_type_overrides(
     mdn_result.event_type_map,
     all_defs,
   )
-  if event_overrides_added > 0 {
-    println(
-      "Applied " +
-      event_overrides_added.to_string() +
-      " event type overrides",
-    )
+  let event_suffix = if event_overrides_added > 0 {
+    " (+" + event_overrides_added.to_string() + " overrides)"
+  } else {
+    ""
   }
-  // Apply built-in throws overrides
+  println(
+    "    Event types: " +
+    mdn_result.event_type_map.length().to_string() +
+    " resolved" +
+    event_suffix,
+  )
+
+  // Apply throws overrides
   let (added, removed) = apply_throws_overrides(mdn_result.throws_map)
   if added > 0 || removed > 0 {
     println(
-      "Applied throws overrides: +" +
+      "    Throws overrides: +" +
       added.to_string() +
-      " added, -" +
-      removed.to_string() +
-      " removed",
+      " / -" +
+      removed.to_string(),
     )
   }
+  if mdn_result.has_section_but_no_parse > 0 {
+    println(
+      "    Unparsed:    " +
+      mdn_result.has_section_but_no_parse.to_string() +
+      " exceptions sections",
+    )
+  }
+  println("")
+
+  // Inject throws into definitions
   let final_size = throws_map_size(mdn_result.throws_map)
   if final_size > 0 {
     let throws_maps : Array[(String, ThrowsMap)] = [
@@ -158,24 +173,26 @@ async fn main {
       }
     }
   }
+
+  // Write diagnostic reports
+  let report_files : Array[String] = []
   if mdn_result.not_found > 0 || mdn_result.has_section_but_no_parse > 0 {
     let report_file = path_join(args.output, "throws_not_found.md")
     write_file_sync(report_file, gen_not_found_report(mdn_result))
-    println("Writing: " + report_file)
+    report_files.push("throws_not_found.md")
   }
   if mdn_result.event_not_found.length() > 0 ||
     mdn_result.event_unparsed.length() > 0 {
     let report_file = path_join(args.output, "event_type_report.md")
     write_file_sync(report_file, gen_event_type_report(mdn_result))
-    println("Writing: " + report_file)
+    report_files.push("event_type_report.md")
   }
 
   // Generate per-spec MoonBit files
-  println("Generating per-spec MoonBit files...")
+  process_stdout_write("  Generating bindings... ")
 
   // Build global type ownership map (first definition wins)
   let ownership = build_global_type_ownership(results)
-  println("Registered " + ownership.length().to_string() + " unique types")
 
   // Collect all definitions
   let all_definitions = merge_all_results(results)
@@ -184,7 +201,6 @@ async fn main {
   let external_types = collect_external_types_with_ownership(
     all_definitions, ownership,
   )
-  println("Found " + external_types.length().to_string() + " external types")
 
   // Build global maps
   let global_enum_map : Array[(String, Array[String])] = []
@@ -257,7 +273,6 @@ async fn main {
     callback_interface_names~,
   )
   let shared_file = path_join(args.output, "shared.mbt")
-  println("Writing: " + shared_file)
   write_file_sync(shared_file, shared_code)
 
   // Output each spec to its own file
@@ -303,11 +318,30 @@ async fn main {
         counts
       }
     })
+
   println(
-    "Done! Generated " +
     success_count.to_string() +
-    " files with " +
-    total_defs.to_string() +
-    " total definitions",
+    " files + shared.mbt",
   )
+  println("  Output: " + args.output)
+  if report_files.length() > 0 {
+    let mut reports = ""
+    for i, f in report_files {
+      if i > 0 {
+        reports = reports + ", "
+      }
+      reports = reports + f
+    }
+    println("  Reports: " + reports)
+  }
+  println(
+    "\n  " +
+    total_defs.to_string() +
+    " definitions | " +
+    ownership.length().to_string() +
+    " types | " +
+    external_types.length().to_string() +
+    " external refs",
+  )
+  println("")
 }
