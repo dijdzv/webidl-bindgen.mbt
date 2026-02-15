@@ -353,11 +353,9 @@ fn gen_namespace_attribute_getter(
 
 ///|
 /// Generate binding code for a namespace definition
-pub fn gen_namespace_binding(
-  ns : NamespaceDef,
-  enum_map : Array[(String, Array[String])],
-  dict_map? : Array[(String, DictionaryDef)] = [],
-) -> String {
+pub fn gen_namespace_binding(ns : NamespaceDef, ctx : GenContext) -> String {
+  let enum_map = ctx.enum_map
+  let dict_map = ctx.dict_map
   let result = StringBuilder::new()
   let ns_snake = to_snake_case(ns.name)
   result.write_string("///|\n")

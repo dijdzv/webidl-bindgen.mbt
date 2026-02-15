@@ -1,6 +1,23 @@
 // Code output formatter
 
 ///|
+/// Global context for code generation, shared across all generators.
+pub struct GenContext {
+  enum_map : Array[(String, Array[String])]
+  union_set : Array[String]
+  dictionary_names : Array[String]
+  union_typedef_map : Array[(String, Array[IdlType])]
+  enum_names : Array[String]
+  primitive_typedef_map : Array[(String, IdlType)]
+  callback_interface_names : Array[String]
+  interfaces : Array[(String, InterfaceDef)]
+  inheritance_map : Array[(String, Array[String])]
+  dict_map : Array[(String, DictionaryDef)]
+  deprecated_set : Array[String]
+  event_type_map : Array[(String, String)]
+}
+
+///|
 /// MoonBit builtin types (excluded from external type detection)
 let builtin_types : Array[String] = [
   "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
@@ -517,19 +534,15 @@ pub fn gen_shared_types_with_externals(
 pub fn format_spec_output(
   spec_name : String,
   definitions : Array[Definition],
-  global_enum_map : Array[(String, Array[String])],
-  global_union_set : Array[String],
-  dictionary_names : Array[String],
-  union_typedef_map? : Array[(String, Array[IdlType])] = [],
-  enum_names? : Array[String] = [],
-  primitive_typedef_map? : Array[(String, IdlType)] = [],
-  callback_interface_names? : Array[String] = [],
-  global_interfaces? : Array[(String, InterfaceDef)] = [],
-  global_inheritance_map? : Array[(String, Array[String])] = [],
-  global_dict_map? : Array[(String, DictionaryDef)] = [],
-  deprecated_set? : Array[String] = [],
-  event_type_map? : Array[(String, String)] = [],
+  ctx : GenContext,
 ) -> String {
+  let global_enum_map = ctx.enum_map
+  let global_union_set = ctx.union_set
+  let dictionary_names = ctx.dictionary_names
+  let union_typedef_map = ctx.union_typedef_map
+  let enum_names = ctx.enum_names
+  let primitive_typedef_map = ctx.primitive_typedef_map
+  let callback_interface_names = ctx.callback_interface_names
   let result = StringBuilder::new()
 
   // Header
@@ -635,18 +648,7 @@ pub fn format_spec_output(
   .iter()
   .each(fn(entry) {
     let (_, iface) = entry
-    result.write_string(
-      gen_interface_binding(
-        iface,
-        global_enum_map,
-        interfaces=global_interfaces,
-        inheritance_map=global_inheritance_map,
-        dict_map=global_dict_map,
-        union_typedef_map~,
-        deprecated_set~,
-        event_type_map~,
-      ),
-    )
+    result.write_string(gen_interface_binding(iface, ctx))
     result.write_string("\n")
   })
 
@@ -664,9 +666,7 @@ pub fn format_spec_output(
     spec_namespaces
     .iter()
     .each(fn(ns) {
-      result.write_string(
-        gen_namespace_binding(ns, global_enum_map, dict_map=global_dict_map),
-      )
+      result.write_string(gen_namespace_binding(ns, ctx))
       result.write_string("\n")
     })
   }

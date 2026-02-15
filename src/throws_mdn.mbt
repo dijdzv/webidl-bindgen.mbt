@@ -55,30 +55,32 @@ fn build_full_includes_map(
 }
 
 ///|
-/// Look up target interface for a mixin name.
-fn resolve_mixin(
-  includes_map : Array[(String, String)],
-  mixin_name : String,
-) -> String? {
-  for entry in includes_map {
-    if entry.0 == mixin_name {
-      return Some(entry.1)
-    }
+enum MdnEntryType {
+  Method
+  StaticMethod
+  Constructor
+  Attribute
+  Event
+} derive(Eq)
+
+///|
+fn MdnEntryType::to_string(self : MdnEntryType) -> String {
+  match self {
+    Method => "method"
+    StaticMethod => "static_method"
+    Constructor => "constructor"
+    Attribute => "attribute"
+    Event => "event"
   }
-  None
 }
 
 ///|
-/// Entry for MDN lookup: (iface_for_url, iface_for_key, member_name, entry_type)
-/// - iface_for_url: interface name for MDN URL (mixin resolved to target)
-/// - iface_for_key: interface name for ThrowsMap key (mixin name as-is)
-/// - member_name: method/attribute/constructor name
-/// - entry_type: "method" | "static_method" | "constructor" | "attribute"
+/// Entry for MDN lookup.
 struct MdnLookupEntry {
   iface_for_url : String
   iface_for_key : String
   member_name : String
-  entry_type : String
+  entry_type : MdnEntryType
 }
 
 ///|
@@ -97,7 +99,7 @@ fn collect_lookup_entries(
       _ => continue
     }
     let iface_for_url = if is_mixin {
-      match resolve_mixin(includes_map, iface_name) {
+      match lookup_pair(includes_map, iface_name) {
         Some(target) => target
         None => continue // mixin with no known target
       }
@@ -110,10 +112,10 @@ fn collect_lookup_entries(
           if op.name.is_empty() {
             continue
           }
-          let entry_type = if op.special is Some("static") {
-            "static_method"
+          let entry_type : MdnEntryType = if op.special is Some("static") {
+            StaticMethod
           } else {
-            "method"
+            Method
           }
           entries.push({
             iface_for_url,
@@ -127,7 +129,7 @@ fn collect_lookup_entries(
             iface_for_url,
             iface_for_key: iface_name,
             member_name: "constructor",
-            entry_type: "constructor",
+            entry_type: Constructor,
           })
         Attribute(attr) => {
           if attr.is_readonly {
@@ -137,7 +139,7 @@ fn collect_lookup_entries(
             iface_for_url,
             iface_for_key: iface_name,
             member_name: attr.name,
-            entry_type: "attribute",
+            entry_type: Attribute,
           })
           // on* EventHandler attributes: add event entry for typed event handler
           if starts_with(attr.name, "on") &&
@@ -147,7 +149,7 @@ fn collect_lookup_entries(
               iface_for_url,
               iface_for_key: iface_name,
               member_name: event_name,
-              entry_type: "event",
+              entry_type: Event,
             })
           }
         }
@@ -160,20 +162,16 @@ fn collect_lookup_entries(
 
 ///|
 /// Build MDN raw content URL for a member.
-fn mdn_url(iface : String, name : String, entry_type : String) -> String {
+fn mdn_url(iface : String, name : String, entry_type : MdnEntryType) -> String {
   let base = "https://raw.githubusercontent.com/mdn/content/main/files/en-us/web/api/"
   let iface_lower = to_lower_case(iface)
-  if entry_type == "event" {
-    return base + iface_lower + "/" + to_lower_case(name) + "_event/index.md"
+  match entry_type {
+    Event => base + iface_lower + "/" + to_lower_case(name) + "_event/index.md"
+    Constructor => base + iface_lower + "/" + iface_lower + "/index.md"
+    StaticMethod =>
+      base + iface_lower + "/" + to_lower_case(name) + "_static/index.md"
+    _ => base + iface_lower + "/" + to_lower_case(name) + "/index.md"
   }
-  let member_lower = if entry_type == "constructor" {
-    iface_lower
-  } else if entry_type == "static_method" {
-    to_lower_case(name) + "_static"
-  } else {
-    to_lower_case(name)
-  }
-  base + iface_lower + "/" + member_lower + "/index.md"
 }
 
 ///|
@@ -183,7 +181,11 @@ fn dedup_entries(entries : Array[MdnLookupEntry]) -> Array[MdnLookupEntry] {
   let seen : Array[String] = []
   let result : Array[MdnLookupEntry] = []
   for e in entries {
-    let key = e.iface_for_url + "." + e.member_name + "." + e.entry_type
+    let key = e.iface_for_url +
+      "." +
+      e.member_name +
+      "." +
+      e.entry_type.to_string()
     if !seen.contains(key) {
       seen.push(key)
       result.push(e)
@@ -195,12 +197,11 @@ fn dedup_entries(entries : Array[MdnLookupEntry]) -> Array[MdnLookupEntry] {
 ///|
 fn format_entry_label(entry : MdnLookupEntry) -> String {
   match entry.entry_type {
-    "constructor" => entry.iface_for_url + ".constructor"
-    "attribute" => entry.iface_for_url + "." + entry.member_name + " (setter)"
-    "static_method" =>
-      entry.iface_for_url + "." + entry.member_name + " (static)"
-    "event" => entry.iface_for_url + "." + entry.member_name + " (event)"
-    _ => entry.iface_for_url + "." + entry.member_name
+    Constructor => entry.iface_for_url + ".constructor"
+    Attribute => entry.iface_for_url + "." + entry.member_name + " (setter)"
+    StaticMethod => entry.iface_for_url + "." + entry.member_name + " (static)"
+    Event => entry.iface_for_url + "." + entry.member_name + " (event)"
+    Method => entry.iface_for_url + "." + entry.member_name
   }
 }
 
@@ -327,7 +328,9 @@ pub fn gen_event_type_report(result : MdnThrowsResult) -> String {
     unresolved.push(entry)
   }
   if unresolved.length() > 0 {
-    sb.write_string("## Not Found (" + unresolved.length().to_string() + ")\n\n")
+    sb.write_string(
+      "## Not Found (" + unresolved.length().to_string() + ")\n\n",
+    )
     sb.write_string(
       "These events have no MDN page. The handler type falls back to `Event`.\n",
     )
@@ -411,6 +414,99 @@ fn get_parent_chain(
 }
 
 ///|
+/// Retry event 404s with parent interface fallback URLs.
+/// Mutates event_type_map (resolved entries) and event_not_found (truly missing).
+async fn resolve_event_fallbacks(
+  event_retry_entries : Array[MdnLookupEntry],
+  parent_map : Array[(String, String)],
+  event_type_map : Array[(String, String)],
+  event_not_found : Array[String],
+) -> Unit {
+  let retry_urls = create_js_string_array()
+  let retry_entries : Array[(MdnLookupEntry, String)] = []
+  let seen_retry_keys : Array[String] = []
+  for entry in event_retry_entries {
+    let parents = get_parent_chain(parent_map, entry.iface_for_url)
+    let candidates : Array[String] = []
+    for p in parents {
+      if !candidates.contains(p) {
+        candidates.push(p)
+      }
+    }
+    for p in event_url_fallback_parents {
+      if !candidates.contains(p) && p != entry.iface_for_url {
+        candidates.push(p)
+      }
+    }
+    for parent in candidates {
+      let retry_key = parent + "." + entry.member_name
+      if !seen_retry_keys.contains(retry_key) {
+        seen_retry_keys.push(retry_key)
+        push_js_string_array(
+          retry_urls,
+          mdn_url(parent, entry.member_name, Event),
+        )
+        retry_entries.push((entry, parent))
+      }
+    }
+  }
+  let retry_results = batch_fetch_mdn_promise(retry_urls).wait()
+  let retry_count = mdn_results_count(retry_results)
+  let resolved_keys : Array[String] = []
+  for i = 0; i < retry_count; i = i + 1 {
+    let content = mdn_result_content(retry_results, i)
+    if content == "" {
+      continue
+    }
+    let (entry, _) = retry_entries[i]
+    let key = entry.iface_for_key + ".on" + entry.member_name
+    if resolved_keys.contains(key) {
+      continue
+    }
+    let event_type = parse_mdn_event_type_js(content)
+    if event_type != "" {
+      event_type_map.push((key, event_type))
+      resolved_keys.push(key)
+    }
+  }
+  for entry in event_retry_entries {
+    let key = entry.iface_for_key + ".on" + entry.member_name
+    if !resolved_keys.contains(key) {
+      if !event_not_found.contains(key) {
+        event_not_found.push(key)
+      }
+    }
+  }
+}
+
+///|
+/// Expand event_type_map: mixin keys → all target interface keys.
+fn expand_mixin_events(
+  event_type_map : Array[(String, String)],
+  full_includes_map : Array[(String, Array[String])],
+) -> Unit {
+  let expanded : Array[(String, String)] = []
+  for entry in event_type_map {
+    let (key, event_type) = entry
+    let dot_idx = find_dot_index(key)
+    if dot_idx >= 0 {
+      let iface_part = string_slice(key, 0, dot_idx)
+      let event_part = string_from(key, dot_idx)
+      for mapping in full_includes_map {
+        if mapping.0 == iface_part {
+          for target in mapping.1 {
+            expanded.push((target + event_part, event_type))
+          }
+        }
+      }
+    }
+  }
+  for entry in expanded {
+    event_type_map.push(entry)
+  }
+}
+
+///|
 /// Main pipeline: build ThrowsMap from MDN content.
 pub async fn build_throws_map_from_mdn(
   definitions : Array[Definition],
@@ -462,7 +558,7 @@ pub async fn build_throws_map_from_mdn(
     let entry = entries[i]
     if content == "" {
       // Event 404: queue for parent fallback retry
-      if entry.entry_type == "event" {
+      if entry.entry_type is Event {
         event_retry_entries.push(entry)
       } else {
         not_found_entries.push(format_entry_label(entry))
@@ -470,7 +566,7 @@ pub async fn build_throws_map_from_mdn(
       continue
     }
     // Event entries: parse event type only
-    if entry.entry_type == "event" {
+    if entry.entry_type is Event {
       let event_type = parse_mdn_event_type_js(content)
       if event_type != "" {
         let key = entry.iface_for_key + ".on" + entry.member_name
@@ -485,7 +581,7 @@ pub async fn build_throws_map_from_mdn(
     let status_arr = parse_mdn_status_js(content)
     let statuses = js_array_to_strings(status_arr)
     if statuses.iter().any(fn(s) { s == "deprecated" }) {
-      let dep_key = if entry.entry_type == "constructor" {
+      let dep_key = if entry.entry_type is Constructor {
         entry.iface_for_key + ".constructor"
       } else {
         entry.iface_for_key + "." + entry.member_name
@@ -503,14 +599,14 @@ pub async fn build_throws_map_from_mdn(
       }
       continue
     }
-    if entry.entry_type == "attribute" {
+    if entry.entry_type is Attribute {
       set_attribute_throws(
         map,
         entry.iface_for_key,
         entry.member_name,
         exceptions,
       )
-    } else if entry.entry_type == "constructor" {
+    } else if entry.entry_type is Constructor {
       set_throws(map, entry.iface_for_key, "constructor", exceptions)
     } else {
       set_throws(map, entry.iface_for_key, entry.member_name, exceptions)
@@ -518,92 +614,12 @@ pub async fn build_throws_map_from_mdn(
   }
   // 5. Retry event 404s with parent interface fallback URLs
   if event_retry_entries.length() > 0 {
-    // Build unique retry URLs: for each failed event, try parent chain + known fallbacks
-    let retry_urls = create_js_string_array()
-    let retry_entries : Array[(MdnLookupEntry, String)] = [] // (entry, parent_iface)
-    let seen_retry_keys : Array[String] = []
-    for entry in event_retry_entries {
-      // Get parent chain for the original URL interface
-      let parents = get_parent_chain(parent_map, entry.iface_for_url)
-      // Also add known fallback parents
-      let candidates : Array[String] = []
-      for p in parents {
-        if !candidates.contains(p) {
-          candidates.push(p)
-        }
-      }
-      for p in event_url_fallback_parents {
-        if !candidates.contains(p) && p != entry.iface_for_url {
-          candidates.push(p)
-        }
-      }
-      for parent in candidates {
-        let retry_key = parent + "." + entry.member_name
-        if !seen_retry_keys.contains(retry_key) {
-          seen_retry_keys.push(retry_key)
-          push_js_string_array(
-            retry_urls,
-            mdn_url(parent, entry.member_name, "event"),
-          )
-          retry_entries.push((entry, parent))
-        }
-      }
-    }
-    let retry_results = batch_fetch_mdn_promise(retry_urls).wait()
-    let retry_count = mdn_results_count(retry_results)
-    // Track which event names have been resolved by retry
-    let resolved_events : Array[String] = [] // member_name values that succeeded
-    for i = 0; i < retry_count; i = i + 1 {
-      let content = mdn_result_content(retry_results, i)
-      if content == "" {
-        continue
-      }
-      let (entry, _) = retry_entries[i]
-      if resolved_events.contains(entry.member_name) {
-        continue
-      }
-      let event_type = parse_mdn_event_type_js(content)
-      if event_type != "" {
-        let key = entry.iface_for_key + ".on" + entry.member_name
-        event_type_map.push((key, event_type))
-        resolved_events.push(entry.member_name)
-      }
-    }
-    // Add truly not-found events (not resolved by any retry)
-    for entry in event_retry_entries {
-      if !resolved_events.contains(entry.member_name) {
-        let label = entry.iface_for_key + ".on" + entry.member_name
-        if !event_not_found.contains(label) {
-          event_not_found.push(label)
-        }
-      }
-    }
+    resolve_event_fallbacks(
+      event_retry_entries, parent_map, event_type_map, event_not_found,
+    )
   }
   // 6. Expand event_type_map: mixin keys → all target interface keys
-  let expanded_entries : Array[(String, String)] = []
-  for entry in event_type_map {
-    let (key, event_type) = entry
-    // Check if the interface part of the key is a mixin
-    // Key format: "InterfaceName.oneventname"
-    let dot_idx = find_dot_index(key)
-    if dot_idx >= 0 {
-      let iface_part = string_slice(key, 0, dot_idx)
-      let event_part = string_from(key, dot_idx) // ".oneventname"
-      // Look up in full includes map
-      for mapping in full_includes_map {
-        if mapping.0 == iface_part {
-          // This is a mixin — expand to all targets
-          for target in mapping.1 {
-            let expanded_key = target + event_part
-            expanded_entries.push((expanded_key, event_type))
-          }
-        }
-      }
-    }
-  }
-  for entry in expanded_entries {
-    event_type_map.push(entry)
-  }
+  expand_mixin_events(event_type_map, full_includes_map)
   {
     throws_map: map,
     total_fetched: count,

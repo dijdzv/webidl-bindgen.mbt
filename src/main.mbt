@@ -86,9 +86,7 @@ async fn main {
   // Load all specs from @webref/idl
   let webref_specs = list_all_specs()
   let spec_names = get_all_spec_names(webref_specs)
-  process_stdout_write(
-    "  Loading @webref/idl specs... ",
-  )
+  process_stdout_write("  Loading @webref/idl specs... ")
   let results = load_multiple_specs(webref_specs, spec_names, false)
   println(spec_names.length().to_string() + " specs")
 
@@ -100,9 +98,7 @@ async fn main {
     }
   }
   if error_count > 0 {
-    println(
-      "  Warnings: " + error_count.to_string() + " specs failed to parse",
-    )
+    println("  Warnings: " + error_count.to_string() + " specs failed to parse")
   }
 
   // Build throws map from MDN
@@ -113,11 +109,7 @@ async fn main {
 
   // MDN detection results
   let throws_count = throws_map_size(mdn_result.throws_map)
-  println(
-    "    Throws:      " +
-    throws_count.to_string() +
-    " members",
-  )
+  println("    Throws:      " + throws_count.to_string() + " members")
   println(
     "    Deprecated:  " +
     mdn_result.deprecated_set.length().to_string() +
@@ -193,12 +185,9 @@ async fn main {
   // Build global type ownership map (first definition wins)
   let ownership = build_global_type_ownership(results)
 
-  // Collect all definitions
-  let all_definitions = merge_all_results(results)
-
   // Collect external types (referenced but not defined)
   let external_types = collect_external_types_with_ownership(
-    all_definitions, ownership,
+    all_defs, ownership,
   )
 
   // Build global maps
@@ -210,7 +199,7 @@ async fn main {
   let primitive_typedef_map : Array[(String, IdlType)] = []
   let callback_interface_names : Array[String] = []
   let global_dict_map : Array[(String, DictionaryDef)] = []
-  all_definitions
+  all_defs
   .iter()
   .each(fn(def) {
     match def {
@@ -236,7 +225,7 @@ async fn main {
   })
 
   // Collect inline Unions
-  let inline_unions = collect_inline_unions(all_definitions)
+  let inline_unions = collect_inline_unions(all_defs)
   inline_unions
   .iter()
   .each(fn(entry) {
@@ -249,7 +238,7 @@ async fn main {
   let defined_types = ownership.map(fn(entry) { entry.0 })
 
   // Build global interfaces list for inheritance map
-  let global_interfaces : Array[(String, InterfaceDef)] = all_definitions
+  let global_interfaces : Array[(String, InterfaceDef)] = all_defs
     .iter()
     .filter_map(fn(def) {
       match def {
@@ -259,6 +248,22 @@ async fn main {
     })
     .collect()
   let global_inheritance_map = build_inheritance_map(global_interfaces)
+
+  // Build generation context
+  let gen_ctx : GenContext = {
+    enum_map: global_enum_map,
+    union_set: global_union_set,
+    dictionary_names,
+    union_typedef_map,
+    enum_names,
+    primitive_typedef_map,
+    callback_interface_names,
+    interfaces: global_interfaces,
+    inheritance_map: global_inheritance_map,
+    dict_map: global_dict_map,
+    deprecated_set: mdn_result.deprecated_set,
+    event_type_map: mdn_result.event_type_map,
+  }
 
   // Write shared.mbt
   let shared_code = gen_shared_types_with_externals(
@@ -281,28 +286,13 @@ async fn main {
       let (success_count, total_defs) = counts
       if result.success && result.definitions.length() > 0 {
         let owned_defs = filter_definitions_by_owner(
-          all_definitions,
+          all_defs,
           result.spec_name,
           ownership,
         )
         if owned_defs.length() > 0 {
           let merged = merge_definitions(owned_defs)
-          let code = format_spec_output(
-            result.spec_name,
-            merged,
-            global_enum_map,
-            global_union_set,
-            dictionary_names,
-            union_typedef_map~,
-            enum_names~,
-            primitive_typedef_map~,
-            callback_interface_names~,
-            global_interfaces~,
-            global_inheritance_map~,
-            global_dict_map~,
-            deprecated_set=mdn_result.deprecated_set,
-            event_type_map=mdn_result.event_type_map,
-          )
+          let code = format_spec_output(result.spec_name, merged, gen_ctx)
           if merged.length() > 0 {
             let output_file = path_join(args.output, result.spec_name + ".mbt")
             write_file_sync(output_file, code)
@@ -318,10 +308,7 @@ async fn main {
       }
     })
 
-  println(
-    success_count.to_string() +
-    " files + shared.mbt",
-  )
+  println(success_count.to_string() + " files + shared.mbt")
   println("  Output: " + args.output)
   if report_files.length() > 0 {
     let mut reports = ""

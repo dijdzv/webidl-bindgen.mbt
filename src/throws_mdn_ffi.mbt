@@ -103,30 +103,23 @@ extern "js" fn apply_throws_overrides_js(
 ) -> Int =
   #| (map, s) => {
   #|   const o = JSON.parse(s);
+  #|   const expandKeys = (k) => {
+  #|     if (k.endsWith('.setter')) {
+  #|       const p = k.split('.'), i = p[0], a = p[1];
+  #|       return [i + '.set_' + a, i + '.' + a];
+  #|     }
+  #|     return [k];
+  #|   };
   #|   let added = 0, removed = 0;
   #|   if (o.add) {
   #|     for (const [key, exceptions] of Object.entries(o.add)) {
-  #|       if (key.endsWith('.setter')) {
-  #|         const parts = key.split('.');
-  #|         const iface = parts[0], attr = parts[1];
-  #|         map.set(iface + '.set_' + attr, exceptions);
-  #|         map.set(iface + '.' + attr, exceptions);
-  #|       } else {
-  #|         map.set(key, exceptions);
-  #|       }
+  #|       for (const k of expandKeys(key)) map.set(k, exceptions);
   #|       added++;
   #|     }
   #|   }
   #|   if (o.remove) {
   #|     for (const key of o.remove) {
-  #|       if (key.endsWith('.setter')) {
-  #|         const parts = key.split('.');
-  #|         const iface = parts[0], attr = parts[1];
-  #|         map.delete(iface + '.set_' + attr);
-  #|         map.delete(iface + '.' + attr);
-  #|       } else {
-  #|         map.delete(key);
-  #|       }
+  #|       for (const k of expandKeys(key)) map.delete(k);
   #|       removed++;
   #|     }
   #|   }

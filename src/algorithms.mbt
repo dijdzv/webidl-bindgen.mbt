@@ -50,17 +50,6 @@ pub extern "js" fn get_throws(
   #| }
 
 ///|
-/// Get throws list for an attribute from throws map.
-pub extern "js" fn get_attribute_throws(
-  throws_map : ThrowsMap,
-  interface_name : String,
-  attr_name : String,
-) -> JsArray =
-  #| (map, iface, attr) => {
-  #|   return map.get(iface + '.' + attr) || [];
-  #| }
-
-///|
 /// Get throws list for a constructor from throws map.
 /// key format: "Interface.constructor"
 pub extern "js" fn get_constructor_throws(

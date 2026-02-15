@@ -2160,16 +2160,14 @@ fn gen_deprecated_annotation(member_label : String) -> String {
 }
 
 ///|
-pub fn gen_interface_binding(
-  iface : InterfaceDef,
-  enum_map : Array[(String, Array[String])],
-  interfaces? : Array[(String, InterfaceDef)] = [],
-  inheritance_map? : Array[(String, Array[String])] = [],
-  dict_map? : Array[(String, DictionaryDef)] = [],
-  union_typedef_map? : Array[(String, Array[IdlType])] = [],
-  deprecated_set? : Array[String] = [],
-  event_type_map? : Array[(String, String)] = [],
-) -> String {
+pub fn gen_interface_binding(iface : InterfaceDef, ctx : GenContext) -> String {
+  let enum_map = ctx.enum_map
+  let interfaces = ctx.interfaces
+  let inheritance_map = ctx.inheritance_map
+  let dict_map = ctx.dict_map
+  let union_typedef_map = ctx.union_typedef_map
+  let deprecated_set = ctx.deprecated_set
+  let event_type_map = ctx.event_type_map
   let result = StringBuilder::new()
 
   // Segment marker (for avoiding 65535 line limit in large files)

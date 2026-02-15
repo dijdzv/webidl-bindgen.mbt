@@ -36,12 +36,7 @@ fn inject_throws_into_members(
         if op.name.is_empty() {
           continue
         }
-        let method_name = match op.special {
-          Some("getter") => op.name
-          Some("setter") => op.name
-          Some("deleter") => op.name
-          _ => op.name
-        }
+        let method_name = op.name
         let throws = lookup_throws(throws_maps, interface_name, method_name)
         if throws.length() > 0 {
           members[i] = Operation({

@@ -537,12 +537,6 @@ pub fn set_pair(
 }
 
 ///|
-/// Check if an array of Strings contains a given string
-pub fn array_has(arr : Array[String], s : String) -> Bool {
-  arr.iter().any(fn(item) { item == s })
-}
-
-///|
 /// Find index of first dot in string (-1 if not found)
 extern "js" fn find_dot_index(s : String) -> Int =
   #| (s) => s.indexOf('.')
