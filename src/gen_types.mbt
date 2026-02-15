@@ -1305,6 +1305,16 @@ fn gen_from_js_nullable_field_expr(
 }
 
 ///|
+/// Sort exceptions alphabetically for consistent $tag ordering.
+/// Both gen_error_enum and gen_inline_classify_js must use
+/// the same order so that enum variant tags match catch-block tags.
+fn sort_exceptions(exceptions : Array[String]) -> Array[String] {
+  let sorted = exceptions.copy()
+  sorted.sort()
+  sorted
+}
+
+///|
 /// Generate error enum + classify FFI for throwing methods.
 /// exceptions: sorted list of exception names (e.g., ["HierarchyRequestError", "NotFoundError"])
 /// Returns the MoonBit code for the enum definition + classify function.
@@ -1316,9 +1326,7 @@ pub fn gen_error_enum(enum_name : String, exceptions : Array[String]) -> String 
   result.write_string("pub(all) enum ")
   result.write_string(enum_name)
   result.write_string(" {\n")
-  // Sorted exception variants
-  let sorted = exceptions.copy()
-  sorted.sort()
+  let sorted = sort_exceptions(exceptions)
   sorted
   .iter()
   .each(fn(ex) {
@@ -1339,8 +1347,7 @@ pub fn gen_error_enum(enum_name : String, exceptions : Array[String]) -> String 
 /// correct tagged error variant.
 /// Example output: (() => { const n = (e && e.name) || ''; if (n === 'TypeError') return { $tag: 0, _0: e }; return { $tag: 1, _0: e }; })()
 pub fn gen_inline_classify_js(exceptions : Array[String]) -> String {
-  let sorted = exceptions.copy()
-  sorted.sort()
+  let sorted = sort_exceptions(exceptions)
   let result = StringBuilder::new()
   result.write_string("(() => { const n = (e && e.name) || '';")
   for i, ex in sorted {
