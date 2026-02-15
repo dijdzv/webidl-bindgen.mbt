@@ -233,7 +233,13 @@ fn gen_namespace_operation_single(
 ) -> String {
   let op_snake = op.name |> to_snake_case |> escape_reserved
   let fn_name = ns_snake + "_" + op_snake + fn_suffix
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing) = compute_throws_context(
+    op.throws,
+    op.name,
+    ns_name,
+    idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
+  )
   let needs_wrapper = has_dict_args(args, arg_count, dict_map)
   let result = StringBuilder::new()
   if needs_wrapper {
@@ -278,7 +284,12 @@ fn gen_namespace_operation_single(
     js_call_args.write_string(gen_js_call_arg(args[i], enum_map, dict_map))
   }
   let js_expr = ns_name + "." + op.name + "(" + js_call_args.to_string() + ")"
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    op.throws,
+  )
   result.write_string(wrapped)
   result.write_string("\n")
   if needs_wrapper {
@@ -342,17 +353,17 @@ fn gen_namespace_attribute_getter(
 
 ///|
 /// Generate binding code for a namespace definition
-pub fn gen_namespace_binding(
-  ns : NamespaceDef,
-  enum_map : Array[(String, Array[String])],
-  dict_map? : Array[(String, DictionaryDef)] = [],
-) -> String {
+pub fn gen_namespace_binding(ns : NamespaceDef, ctx : GenContext) -> String {
+  let enum_map = ctx.enum_map
+  let dict_map = ctx.dict_map
   let result = StringBuilder::new()
   let ns_snake = to_snake_case(ns.name)
   result.write_string("///|\n")
   result.write_string("/// ")
   result.write_string(ns.name)
   result.write_string(" namespace\n\n")
+  // Pre-generate error enums for throwing namespace operations
+  result.write_string(gen_error_enums_for_members(ns.name, ns.members))
   let generated_fns : Array[String] = []
   let max_variadic_arity = 8 // generate _0 through _7
   for i = 0; i < ns.members.length(); i = i + 1 {

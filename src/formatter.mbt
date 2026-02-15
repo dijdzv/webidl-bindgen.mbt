@@ -1,64 +1,27 @@
 // Code output formatter
 
 ///|
-/// External types declared in header (with category)
-/// (type name, category, comment)
-let external_header_types : Array[(String, String, String)] = [
-  // HTML Elements
-  ("HTMLCanvasElement", "HTML Elements", ""),
-  ("HTMLImageElement", "HTML Elements", ""),
-  ("HTMLVideoElement", "HTML Elements", ""),
-  ("Element", "HTML Elements", ""),
-  // SVG Elements
-  ("SVGImageElement", "SVG Elements", ""),
-  ("SVGMatrix", "SVG Elements", ""),
-  // Canvas/Image types
-  ("ImageBitmap", "Canvas/Image types", ""),
-  ("ImageData", "Canvas/Image types", ""),
-  ("OffscreenCanvas", "Canvas/Image types", ""),
-  ("VideoFrame", "Canvas/Image types", ""),
-  ("CanvasImageSource", "Canvas/Image types", "// union type"),
-  ("CanvasGradient", "Canvas/Image types", ""),
-  ("CanvasPattern", "Canvas/Image types", ""),
-  ("Path2D", "Canvas/Image types", ""),
-  // Matrix/Transform types
-  ("DOMMatrix", "Matrix/Transform types", ""),
-  ("DOMMatrix2DInit", "Matrix/Transform types", ""),
-  // TypedArrays
-  ("Uint8ClampedArray", "TypedArrays", ""),
-  ("Float64Array", "TypedArrays", ""),
-]
+/// Global context for code generation, shared across all generators.
+pub struct GenContext {
+  enum_map : Array[(String, Array[String])]
+  union_set : Array[String]
+  dictionary_names : Array[String]
+  union_typedef_map : Array[(String, Array[IdlType])]
+  enum_names : Array[String]
+  primitive_typedef_map : Array[(String, IdlType)]
+  callback_interface_names : Array[String]
+  interfaces : Array[(String, InterfaceDef)]
+  inheritance_map : Array[(String, Array[String])]
+  dict_map : Array[(String, DictionaryDef)]
+  deprecated_set : Array[String]
+  event_type_map : Array[(String, String)]
+}
 
 ///|
 /// MoonBit builtin types (excluded from external type detection)
 let builtin_types : Array[String] = [
   "JsValue", "Int", "Int64", "Double", "Bool", "String", "Unit", "Bytes",
 ]
-
-///|
-/// Get array of external type names only
-fn get_external_type_names() -> Array[String] {
-  external_header_types.map(fn(entry) { entry.0 })
-}
-
-///|
-/// Collect type names defined in WebIDL
-fn collect_defined_types(definitions : Array[Definition]) -> Array[String] {
-  definitions
-  .iter()
-  .filter_map(fn(def) {
-    match def {
-      Interface(iface) => Some(iface.name)
-      Dictionary(dict) => Some(dict.name)
-      Enum(e) => Some(e.name)
-      Typedef(t) => Some(t.name)
-      CallbackInterface(cb) => Some(cb.name)
-      Namespace(ns) => Some(ns.name)
-      _ => None
-    }
-  })
-  .collect()
-}
 
 ///|
 /// Collect type names referenced in definitions
@@ -290,463 +253,6 @@ pub fn collect_external_types_with_ownership(
 }
 
 ///|
-/// Extract undefined external types
-fn collect_undefined_external_types(
-  definitions : Array[Definition],
-) -> Array[String] {
-  let defined = collect_defined_types(definitions)
-  let referenced = collect_referenced_types(definitions)
-  // Also exclude types already declared in header
-  let header_types = get_external_type_names()
-  referenced
-  .iter()
-  .fold(init=Array::new(), fn(undefined, ref_type) {
-    // Exclude lowercase-starting names (invalid type names like object)
-    let first_char = get_first_char(ref_type)
-    let is_lowercase = first_char >= 'a' && first_char <= 'z'
-    if !defined.contains(ref_type) &&
-      !builtin_types.contains(ref_type) &&
-      !header_types.contains(ref_type) &&
-      !undefined.contains(ref_type) &&
-      !is_lowercase {
-      undefined.push(ref_type)
-    }
-    undefined
-  })
-}
-
-///|
-/// Check if type name is in exclusion list
-fn is_excluded_type(name : String, exclude : Array[String]) -> Bool {
-  exclude.contains(name)
-}
-
-///|
-/// Output external type (only if not in exclusion list)
-/// Returns whether the type was output
-fn write_external_type(
-  result : StringBuilder,
-  name : String,
-  exclude : Array[String],
-  comment : String,
-) -> Bool {
-  if !is_excluded_type(name, exclude) {
-    result.write_string("pub type ")
-    result.write_string(name)
-    if comment != "" {
-      result.write_string("  ")
-      result.write_string(comment)
-    }
-    result.write_string("\n")
-    return true
-  }
-  false
-}
-
-///|
-/// Generate file header (can specify types to exclude)
-pub fn gen_file_header_with_exclude(
-  source_file : String,
-  exclude : Array[String],
-) -> String {
-  let result = StringBuilder::new()
-  result.write_string("// Generated from WebIDL - DO NOT EDIT\n")
-  result.write_string("// Source: ")
-  result.write_string(source_file)
-  result.write_string("\n")
-  result.write_string("//\n")
-  result.write_string("// Re-generate with: webidl-bindgen --input ")
-  result.write_string(source_file)
-  result.write_string("\n\n")
-
-  // Add common external type definitions (excluding types defined in WebIDL)
-  result.write_string("// External types\n")
-  ignore(write_external_type(result, "JsValue", exclude, ""))
-  result.write_string("\n")
-
-  // JsValue helper functions
-  result.write_string(
-    "pub extern \"js\" fn JsValue::undefined() -> JsValue =\n",
-  )
-  result.write_string("  #| () => undefined\n\n")
-
-  // JsValue type check methods
-  result
-  ..write_string("/// Check if value is null\n")
-  ..write_string(
-    "pub extern \"js\" fn JsValue::is_null(self : JsValue) -> Bool =\n",
-  )
-  ..write_string("  #| (self) => self === null\n\n")
-  ..write_string("/// Check if value is undefined\n")
-  ..write_string(
-    "pub extern \"js\" fn JsValue::is_undefined(self : JsValue) -> Bool =\n",
-  )
-  ..write_string("  #| (self) => self === undefined\n\n")
-  ..write_string("/// Check if value is null or undefined\n")
-  ..write_string(
-    "pub extern \"js\" fn JsValue::is_null_or_undefined(self : JsValue) -> Bool =\n",
-  )
-  .write_string("  #| (self) => self == null\n\n")
-
-  // Promise type (WebIDL built-in) - aliased to @js_async.Promise for .wait() support
-  result.write_string(
-    "/// JavaScript Promise type (aliased to @js_async.Promise)\n",
-  )
-  result.write_string("pub type Promise[T] = @js_async.Promise[T]\n\n")
-
-  // Nullable type for JavaScript null vs undefined distinction
-  result
-  ..write_string("/// Nullable type for distinguishing null from undefined\n")
-  ..write_string("/// - Undefined: property not set (JS undefined)\n")
-  ..write_string("/// - Null: explicitly null\n")
-  ..write_string("/// - Value(T): has a value\n")
-  ..write_string("pub(all) enum Nullable[T] {\n")
-  ..write_string("  Undefined\n")
-  ..write_string("  Null\n")
-  ..write_string("  Value(T)\n")
-  .write_string("}\n\n")
-
-  // try_catch helper for exception handling
-  result
-  ..write_string("/// Run a function and catch any JavaScript exception.\n")
-  ..write_string(
-    "/// Returns empty string on success, error message on exception.\n",
-  )
-  ..write_string("pub extern \"js\" fn try_catch(f : () -> Unit) -> String =\n")
-  .write_string(
-    "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
-  )
-
-  //Output external types by category (only output header if types exist)
-  ignore(
-    external_header_types
-    .iter()
-    .fold(
-      init=("", false), // (current_category, header_written)
-      fn(state, entry) {
-        let (current_category, header_written) = state
-        let (type_name, category, comment) = entry
-        if category != current_category {
-          // Entered new category
-          if !is_excluded_type(type_name, exclude) {
-            // Output header if type will be output
-            if current_category != "" {
-              result.write_string("\n")
-            }
-            result.write_string("// ")
-            result.write_string(category)
-            result.write_string("\n")
-            ignore(write_external_type(result, type_name, exclude, comment))
-            (category, true)
-          } else {
-            // Don't output header if type is excluded
-            (category, false)
-          }
-          // Within same category
-        } else if !header_written && !is_excluded_type(type_name, exclude) {
-          // First type to output in this category, so output header
-          if current_category != "" {
-            result.write_string("\n")
-          }
-          result.write_string("// ")
-          result.write_string(category)
-          result.write_string("\n")
-          ignore(write_external_type(result, type_name, exclude, comment))
-          (category, true)
-        } else {
-          ignore(write_external_type(result, type_name, exclude, comment))
-          (category, header_written)
-        }
-      },
-    ),
-  )
-  result.write_string("\n")
-  result.to_string()
-}
-
-///|
-/// Generate file header (for backward compatibility)
-pub fn gen_file_header(source_file : String) -> String {
-  gen_file_header_with_exclude(source_file, [])
-}
-
-///|
-/// Generate section separator comment
-pub fn gen_section_comment(title : String) -> String {
-  let result = StringBuilder::new()
-  result.write_string("// ")
-  // Create separator line matching title width
-  let line_len = 60
-  let title_len = title.length()
-  let padding = (line_len - title_len - 4) / 2
-  // Write padding characters
-  for _ in 0..<padding {
-    result.write_char('-')
-  }
-  result.write_string(" ")
-  result.write_string(title)
-  result.write_string(" ")
-  for _ in 0..<padding {
-    result.write_char('-')
-  }
-  result.write_string("\n\n")
-  result.to_string()
-}
-
-///|
-/// Format multiple definitions together
-pub fn format_definitions(
-  source_file : String,
-  definitions : Array[Definition],
-) -> String {
-  let result = StringBuilder::new()
-
-  // Collect type names defined in WebIDL (to avoid duplicate definitions)
-  let defined_types = collect_defined_types(definitions)
-
-  // Collect Dictionary type names (used in Union is_*/as_*)
-  let dictionary_names : Array[String] = definitions
-    .iter()
-    .filter_map(fn(def) {
-      match def {
-        Dictionary(d) => Some(d.name)
-        _ => None
-      }
-    })
-    .collect()
-
-  // File header (exclude types defined in WebIDL)
-  result.write_string(gen_file_header_with_exclude(source_file, defined_types))
-
-  // Declare undefined external types
-  let undefined_types = collect_undefined_external_types(definitions)
-  if undefined_types.length() > 0 {
-    result.write_string(
-      "// Referenced external types (not defined in this WebIDL)\n",
-    )
-    undefined_types
-    .iter()
-    .each(fn(type_name) {
-      result.write_string("pub type ")
-      result.write_string(type_name)
-      result.write_string("\n")
-    })
-    result.write_string("\n")
-  }
-
-  // Create enum map (used for enum argument string conversion)
-  let enum_map : Array[(String, Array[String])] = []
-  // Create enum name list (instanceof -> typeof === 'string')
-  let enum_names : Array[String] = []
-  // Create Union type set (used for .to_js_value() calls in to_js)
-  let union_set : Array[String] = []
-  // Create Union typedef map (used for type checking in is_*/as_*)
-  let union_typedef_map : Array[(String, Array[IdlType])] = []
-  // Create primitive typedef map (instanceof -> typeof check)
-  let primitive_typedef_map : Array[(String, IdlType)] = []
-  // Create callback interface name list (instanceof -> typeof === 'function')
-  let callback_interface_names : Array[String] = []
-  // Create dictionary map (used for dict param → .to_js() conversion)
-  let dict_map : Array[(String, DictionaryDef)] = []
-  definitions
-  .iter()
-  .each(fn(def) {
-    match def {
-      Enum(e) => {
-        enum_map.push((e.name, e.values))
-        enum_names.push(e.name)
-      }
-      Dictionary(d) => dict_map.push((d.name, d))
-      Typedef(t) =>
-        match t.idl_type {
-          Union(members) => {
-            union_set.push(t.name)
-            union_typedef_map.push((t.name, members))
-          }
-          other => primitive_typedef_map.push((t.name, other))
-        }
-      CallbackInterface(cb) => callback_interface_names.push(cb.name)
-      _ => ()
-    }
-  })
-
-  // Collect inline Unions
-  let inline_unions = collect_inline_unions(definitions)
-  // Add inline Union names to union_set
-  inline_unions
-  .iter()
-  .filter(fn(entry) { !union_set.contains(entry.0) })
-  .each(fn(entry) { union_set.push(entry.0) })
-
-  // Types section (enum, dictionary, typedef, callback interface, inline unions)
-  let has_types = inline_unions.length() > 0 ||
-    definitions
-    .iter()
-    .any(fn(def) {
-      def is (Enum(_) | Dictionary(_) | Typedef(_) | CallbackInterface(_))
-    })
-  if has_types {
-    result.write_string(gen_section_comment("Types"))
-
-    // Output Typedef first (may be referenced by other types)
-    definitions
-    .iter()
-    .each(fn(def) {
-      match def {
-        Typedef(t) => {
-          result.write_string(
-            gen_typedef(
-              t,
-              dictionary_names~,
-              union_typedef_map~,
-              enum_names~,
-              primitive_typedef_map~,
-              callback_interface_names~,
-            ),
-          )
-          result.write_string("\n")
-        }
-        _ => ()
-      }
-    })
-
-    // Output inline Union typedef
-    inline_unions
-    .iter()
-    .each(fn(entry) {
-      let (name, members) = entry
-      // Create TypedefDef to reuse gen_typedef
-      let typedef_def : TypedefDef = { name, idl_type: Union(members) }
-      result.write_string(
-        gen_typedef(
-          typedef_def,
-          dictionary_names~,
-          union_typedef_map~,
-          enum_names~,
-          primitive_typedef_map~,
-          callback_interface_names~,
-        ),
-      )
-      result.write_string("\n")
-    })
-
-    // Output Enum
-    definitions
-    .iter()
-    .each(fn(def) {
-      match def {
-        Enum(e) => {
-          result.write_string(gen_enum(e))
-          result.write_string("\n")
-        }
-        _ => ()
-      }
-    })
-
-    // Output CallbackInterface (opaque type + from_fn helper)
-    definitions
-    .iter()
-    .each(fn(def) {
-      match def {
-        CallbackInterface(cb) => {
-          result.write_string("/// ")
-          result.write_string(cb.name)
-          result.write_string(" callback interface\n")
-          result.write_string("pub type ")
-          result.write_string(cb.name)
-          result.write_string("\n\n")
-          // Generate from_fn helper (only if has arguments)
-          if cb.arguments.length() > 0 {
-            result.write_string(gen_callback_from_fn(cb))
-          }
-        }
-        _ => ()
-      }
-    })
-
-    // Output Dictionary
-    definitions
-    .iter()
-    .each(fn(def) {
-      match def {
-        Dictionary(d) => {
-          result.write_string(gen_dictionary(d, enum_map, union_set))
-          result.write_string("\n")
-        }
-        _ => ()
-      }
-    })
-  }
-
-  // Interfaces section
-  // First build interfaces array (used for upcast/downcast method generation)
-  let interfaces : Array[(String, InterfaceDef)] = definitions
-    .iter()
-    .filter_map(fn(def) {
-      match def {
-        Interface(iface) => Some((iface.name, iface))
-        _ => None
-      }
-    })
-    .collect()
-
-  // Build inheritance map (used for downcast method generation)
-  let inheritance_map = build_inheritance_map(interfaces)
-  let has_interfaces = interfaces.length() > 0
-  if has_interfaces {
-    result.write_string(gen_section_comment("Interfaces"))
-    interfaces
-    .iter()
-    .each(fn(entry) {
-      let (_, iface) = entry
-      result.write_string(
-        gen_interface_binding(
-          iface,
-          enum_map,
-          interfaces~,
-          inheritance_map~,
-          dict_map~,
-          union_typedef_map~,
-        ),
-      )
-      result.write_string("\n")
-    })
-  }
-
-  // Namespace section
-  let namespaces : Array[NamespaceDef] = definitions
-    .iter()
-    .filter_map(fn(def) {
-      match def {
-        Namespace(ns) => Some(ns)
-        _ => None
-      }
-    })
-    .collect()
-  if namespaces.length() > 0 {
-    result.write_string(gen_section_comment("Namespaces"))
-    namespaces
-    .iter()
-    .each(fn(ns) {
-      result.write_string(gen_namespace_binding(ns, enum_map, dict_map~))
-      result.write_string("\n")
-    })
-  }
-  result.to_string()
-}
-
-///|
-/// Format single interface (with header)
-/// Note: enum argument string conversion not performed (no enum map)
-pub fn format_interface(source_file : String, iface : InterfaceDef) -> String {
-  let result = StringBuilder::new()
-  result.write_string(gen_file_header(source_file))
-  let empty_enum_map : Array[(String, Array[String])] = []
-  result.write_string(gen_interface_binding(iface, empty_enum_map))
-  result.to_string()
-}
-
-///|
 /// Normalize consecutive blank lines to one
 pub fn normalize_blank_lines(code : String) -> String {
   let result = StringBuilder::new()
@@ -803,20 +309,6 @@ pub fn normalize_indent(code : String) -> String {
     }
   })
   result.to_string()
-}
-
-///|
-/// Apply all formatting processes
-pub fn format_output(
-  source_file : String,
-  definitions : Array[Definition],
-) -> String {
-  // First merge partial definitions into their targets
-  let merged = merge_definitions(definitions)
-  let code = format_definitions(source_file, merged)
-  let code = normalize_indent(code)
-  let code = normalize_blank_lines(code)
-  code
 }
 
 ///|
@@ -912,6 +404,25 @@ pub fn gen_shared_types_with_externals(
   .write_string(
     "  #| (f) => { try { f(); return \"\"; } catch(e) { return String(e); } }\n\n",
   )
+
+  // JsError type for typed exception handling
+  result.write_string(
+    "/// JavaScript error object for typed exception handling\n",
+  )
+  result.write_string("pub type JsError\n\n")
+  result.write_string(
+    "pub extern \"js\" fn JsError::message(self : JsError) -> String =\n",
+  )
+  result.write_string("  #| (self) => self.message\n\n")
+  result.write_string(
+    "pub extern \"js\" fn JsError::name(self : JsError) -> String =\n",
+  )
+  result.write_string("  #| (self) => (self && self.name) || ''\n\n")
+  result.write_string(
+    "impl Show for JsError with output(self, logger) {\n",
+  )
+  result.write_string("  logger.write_string(self.message())\n")
+  result.write_string("}\n\n")
 
   //External type declarations
   if external_types.length() > 0 {
@@ -1028,17 +539,15 @@ pub fn gen_shared_types_with_externals(
 pub fn format_spec_output(
   spec_name : String,
   definitions : Array[Definition],
-  global_enum_map : Array[(String, Array[String])],
-  global_union_set : Array[String],
-  dictionary_names : Array[String],
-  union_typedef_map? : Array[(String, Array[IdlType])] = [],
-  enum_names? : Array[String] = [],
-  primitive_typedef_map? : Array[(String, IdlType)] = [],
-  callback_interface_names? : Array[String] = [],
-  global_interfaces? : Array[(String, InterfaceDef)] = [],
-  global_inheritance_map? : Array[(String, Array[String])] = [],
-  global_dict_map? : Array[(String, DictionaryDef)] = [],
+  ctx : GenContext,
 ) -> String {
+  let global_enum_map = ctx.enum_map
+  let global_union_set = ctx.union_set
+  let dictionary_names = ctx.dictionary_names
+  let union_typedef_map = ctx.union_typedef_map
+  let enum_names = ctx.enum_names
+  let primitive_typedef_map = ctx.primitive_typedef_map
+  let callback_interface_names = ctx.callback_interface_names
   let result = StringBuilder::new()
 
   // Header
@@ -1144,16 +653,7 @@ pub fn format_spec_output(
   .iter()
   .each(fn(entry) {
     let (_, iface) = entry
-    result.write_string(
-      gen_interface_binding(
-        iface,
-        global_enum_map,
-        interfaces=global_interfaces,
-        inheritance_map=global_inheritance_map,
-        dict_map=global_dict_map,
-        union_typedef_map~,
-      ),
-    )
+    result.write_string(gen_interface_binding(iface, ctx))
     result.write_string("\n")
   })
 
@@ -1171,9 +671,7 @@ pub fn format_spec_output(
     spec_namespaces
     .iter()
     .each(fn(ns) {
-      result.write_string(
-        gen_namespace_binding(ns, global_enum_map, dict_map=global_dict_map),
-      )
+      result.write_string(gen_namespace_binding(ns, ctx))
       result.write_string("\n")
     })
   }

@@ -138,7 +138,13 @@ pub fn gen_static_operation_with_suffix(
   }
   let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let fn_name = if suffix == "" { base_fn_name } else { base_fn_name + suffix }
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
+  )
   let args_len = op.arguments.length()
   let needs_wrapper = has_dict_args(op.arguments, args_len, dict_map)
 
@@ -204,7 +210,12 @@ pub fn gen_static_operation_with_suffix(
     js_call_args.to_string() +
     ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    op.throws,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -244,7 +255,13 @@ pub fn gen_static_operation_with_arg_count(
   } else {
     base_fn_name + fn_suffix
   }
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
+  )
   let needs_wrapper = has_dict_args(op.arguments, arg_count, dict_map)
 
   // Generate argument list (without self, up to arg_count)
@@ -309,7 +326,12 @@ pub fn gen_static_operation_with_arg_count(
     js_call_args.to_string() +
     ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    op.throws,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -347,7 +369,13 @@ pub fn gen_special_operation(
       }
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
-      let return_type = idl_type_to_moonbit(op.return_type)
+      let (return_type, is_throwing) = compute_throws_context(
+        op.throws,
+        op.name,
+        interface_name,
+        idl_type_to_moonbit(op.return_type),
+        idl_return_type=op.return_type,
+      )
 
       // Determine if index or named based on argument type
       let is_index_getter = match arg.idl_type {
@@ -376,7 +404,12 @@ pub fn gen_special_operation(
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
       let js_expr = "self[" + arg_name + "]"
-      let wrapped = wrap_return_expr(js_expr, op.return_type)
+      let wrapped = wrap_return_or_throwing(
+        js_expr,
+        op.return_type,
+        is_throwing,
+        op.throws,
+      )
       result.write_string(") => ")
       result.write_string(wrapped)
       result.write_string("\n")
@@ -395,6 +428,17 @@ pub fn gen_special_operation(
       let index_name = index_arg.name |> to_snake_case |> escape_reserved
       let value_name = value_arg.name |> to_snake_case |> escape_reserved
       let is_index_setter = index_arg.idl_type is Primitive(_)
+      let is_throwing = op.throws.length() > 0
+      let error_enum_name = if is_throwing {
+        gen_error_enum_name(op.name, interface_prefix=interface_name)
+      } else {
+        ""
+      }
+      let return_type = if is_throwing {
+        gen_throwing_return_type("Unit", error_enum_name)
+      } else {
+        "Unit"
+      }
       let result = StringBuilder::new()
       if is_index_setter {
         result.write_string("#alias(\"_[_]=_\")\n")
@@ -411,16 +455,23 @@ pub fn gen_special_operation(
       result.write_string(value_name)
       result.write_string(" : ")
       result.write_string(value_type)
-      result.write_string(") -> Unit =\n")
+      result.write_string(") -> ")
+      result.write_string(return_type)
+      result.write_string(" =\n")
+      let assign_expr = "self[" + index_name + "] = " + value_name
       result.write_string("  #| (self, ")
       result.write_string(index_name)
       result.write_string(", ")
       result.write_string(value_name)
-      result.write_string(") => { self[")
-      result.write_string(index_name)
-      result.write_string("] = ")
-      result.write_string(value_name)
-      result.write_string(" }\n")
+      if is_throwing {
+        result.write_string(") => ")
+        result.write_string(wrap_throwing_js_expr(assign_expr, Void, op.throws))
+        result.write_string("\n")
+      } else {
+        result.write_string(") => { ")
+        result.write_string(assign_expr)
+        result.write_string(" }\n")
+      }
       result.to_string()
     }
     "deleter" => {
@@ -432,6 +483,17 @@ pub fn gen_special_operation(
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
       let arg_name = arg.name |> to_snake_case |> escape_reserved
+      let is_throwing = op.throws.length() > 0
+      let error_enum_name = if is_throwing {
+        gen_error_enum_name(op.name, interface_prefix=interface_name)
+      } else {
+        ""
+      }
+      let return_type = if is_throwing {
+        gen_throwing_return_type("Unit", error_enum_name)
+      } else {
+        "Unit"
+      }
       let result = StringBuilder::new()
       result.write_string("pub extern \"js\" fn ")
       result.write_string(interface_name)
@@ -441,12 +503,21 @@ pub fn gen_special_operation(
       result.write_string(arg_name)
       result.write_string(" : ")
       result.write_string(arg_type)
-      result.write_string(") -> Unit =\n")
+      result.write_string(") -> ")
+      result.write_string(return_type)
+      result.write_string(" =\n")
+      let delete_expr = "delete self[" + arg_name + "]"
       result.write_string("  #| (self, ")
       result.write_string(arg_name)
-      result.write_string(") => { delete self[")
-      result.write_string(arg_name)
-      result.write_string("] }\n")
+      if is_throwing {
+        result.write_string(") => ")
+        result.write_string(wrap_throwing_js_expr(delete_expr, Void, op.throws))
+        result.write_string("\n")
+      } else {
+        result.write_string(") => { ")
+        result.write_string(delete_expr)
+        result.write_string(" }\n")
+      }
       result.to_string()
     }
     _ => ""
@@ -467,7 +538,13 @@ pub fn gen_operation(
     return ""
   }
   let fn_name = op.name |> to_snake_case |> escape_reserved
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
+  )
   let args_len = op.arguments.length()
   let needs_wrapper = has_dict_args(op.arguments, args_len, dict_map)
 
@@ -527,7 +604,12 @@ pub fn gen_operation(
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    op.throws,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -786,7 +868,13 @@ pub fn gen_operation_with_arg_count(
   } else {
     base_fn_name + "_" + fn_suffix
   }
-  let return_type = idl_type_to_moonbit(op.return_type)
+  let (return_type, is_throwing) = compute_throws_context(
+    op.throws,
+    op.name,
+    interface_name,
+    idl_type_to_moonbit(op.return_type),
+    idl_return_type=op.return_type,
+  )
   let needs_wrapper = has_dict_args(op.arguments, arg_count, dict_map)
 
   // Generate argument list (up to arg_count)
@@ -845,7 +933,12 @@ pub fn gen_operation_with_arg_count(
   result.write_string(js_args.to_string())
   let js_expr = "self." + op.name + "(" + js_call_args.to_string() + ")"
   let js_expr = match_promise_dict(js_expr, op.return_type, dict_map, enum_map)
-  let wrapped = wrap_return_expr(js_expr, op.return_type)
+  let wrapped = wrap_return_or_throwing(
+    js_expr,
+    op.return_type,
+    is_throwing,
+    op.throws,
+  )
   result.write_string(") => ")
   result.write_string(wrapped)
   result.write_string("\n")
@@ -1249,6 +1342,17 @@ pub fn gen_attribute_setter(
   }
   let fn_name = "set_" + to_snake_case(attr.name)
   let value_type = idl_type_to_moonbit(attr.idl_type)
+  let is_throwing = attr.setter_throws.length() > 0
+  let error_enum_name = if is_throwing {
+    gen_error_enum_name("set_" + attr.name, interface_prefix=interface_name)
+  } else {
+    ""
+  }
+  let return_type_str = if is_throwing {
+    gen_throwing_return_type("Unit", error_enum_name)
+  } else {
+    "Unit"
+  }
   let result = StringBuilder::new()
   result.write_string("pub extern \"js\" fn ")
   result.write_string(interface_name)
@@ -1258,36 +1362,30 @@ pub fn gen_attribute_setter(
   result.write_string(interface_name)
   result.write_string(", value : ")
   result.write_string(value_type)
-  result.write_string(") -> Unit =\n")
-  // Enum setter: MoonBit passes integer index, JS expects string → array lookup
-  match attr.idl_type {
+  result.write_string(") -> ")
+  result.write_string(return_type_str)
+  result.write_string(" =\n")
+  // Compute the JS value expression for setter
+  let value_expr = match attr.idl_type {
     Named(type_name) =>
       match lookup_enum(enum_map, type_name) {
-        Some(values) => {
-          result.write_string("  #| (self, value) => { self.")
-          result.write_string(attr.name)
-          result.write_string(" = ")
-          result.write_string(gen_enum_array_lookup(values, "value"))
-          result.write_string(" }\n")
-        }
-        None => {
-          result.write_string("  #| (self, value) => { self.")
-          result.write_string(attr.name)
-          result.write_string(" = value }\n")
-        }
+        Some(values) => gen_enum_array_lookup(values, "value")
+        None => "value"
       }
-    Nullable(Named(_)) => {
-      result.write_string("  #| (self, value) => { self.")
-      result.write_string(attr.name)
-      result.write_string(" = ")
-      result.write_string(unwrap_option_named_param("value"))
-      result.write_string(" }\n")
-    }
-    _ => {
-      result.write_string("  #| (self, value) => { self.")
-      result.write_string(attr.name)
-      result.write_string(" = value }\n")
-    }
+    Nullable(Named(_)) => unwrap_option_named_param("value")
+    _ => "value"
+  }
+  let assign_expr = "self." + attr.name + " = " + value_expr
+  if is_throwing {
+    result.write_string("  #| (self, value) => ")
+    result.write_string(
+      wrap_throwing_js_expr(assign_expr, Void, attr.setter_throws),
+    )
+    result.write_string("\n")
+  } else {
+    result.write_string("  #| (self, value) => { ")
+    result.write_string(assign_expr)
+    result.write_string(" }\n")
   }
   result.to_string()
 }
@@ -1397,7 +1495,12 @@ pub fn gen_constructor_with_suffix(
   suffix : String,
   dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  let return_type = interface_name
+  let (return_type, is_throwing) = compute_throws_context(
+    ctor.throws,
+    "constructor",
+    interface_name,
+    interface_name,
+  )
   let args_len = ctor.arguments.length()
   let needs_wrapper = has_dict_args(ctor.arguments, args_len, dict_map)
 
@@ -1454,11 +1557,22 @@ pub fn gen_constructor_with_suffix(
     }
     result.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
-  result.write_string(") => new ")
-  result.write_string(interface_name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  let js_ctor_expr = "new " +
+    interface_name +
+    "(" +
+    js_call_args.to_string() +
+    ")"
+  if is_throwing {
+    result.write_string(") => ")
+    result.write_string(
+      wrap_throwing_js_expr(js_ctor_expr, Named(interface_name), ctor.throws),
+    )
+    result.write_string("\n")
+  } else {
+    result.write_string(") => ")
+    result.write_string(js_ctor_expr)
+    result.write_string("\n")
+  }
   if needs_wrapper {
     let full_fn_name = interface_name + "::new" + suffix
     gen_dict_wrapper(
@@ -1486,7 +1600,12 @@ pub fn gen_constructor_with_arg_count(
   suffix : String,
   dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  let return_type = interface_name
+  let (return_type, is_throwing) = compute_throws_context(
+    ctor.throws,
+    "constructor",
+    interface_name,
+    interface_name,
+  )
   let needs_wrapper = has_dict_args(ctor.arguments, arg_count, dict_map)
 
   // Generate argument list (up to arg_count)
@@ -1541,11 +1660,22 @@ pub fn gen_constructor_with_arg_count(
     }
     result.write_string(arg.name |> to_snake_case |> escape_reserved)
   }
-  result.write_string(") => new ")
-  result.write_string(interface_name)
-  result.write_string("(")
-  result.write_string(js_call_args.to_string())
-  result.write_string(")\n")
+  let js_ctor_expr = "new " +
+    interface_name +
+    "(" +
+    js_call_args.to_string() +
+    ")"
+  if is_throwing {
+    result.write_string(") => ")
+    result.write_string(
+      wrap_throwing_js_expr(js_ctor_expr, Named(interface_name), ctor.throws),
+    )
+    result.write_string("\n")
+  } else {
+    result.write_string(") => ")
+    result.write_string(js_ctor_expr)
+    result.write_string("\n")
+  }
   if needs_wrapper {
     let full_fn_name = interface_name + "::new" + suffix
     gen_dict_wrapper(
@@ -1919,14 +2049,114 @@ fn gen_upcast_methods(
 
 ///|
 /// Generate binding code from entire Interface
-pub fn gen_interface_binding(
-  iface : InterfaceDef,
-  enum_map : Array[(String, Array[String])],
-  interfaces? : Array[(String, InterfaceDef)] = [],
-  inheritance_map? : Array[(String, Array[String])] = [],
-  dict_map? : Array[(String, DictionaryDef)] = [],
-  union_typedef_map? : Array[(String, Array[IdlType])] = [],
+
+///|
+/// Check if attribute is an EventHandler on* attribute
+fn is_any_event_handler_attr(attr : AttributeDef) -> Bool {
+  starts_with(attr.name, "on") &&
+  (
+    attr.idl_type is Named("EventHandler") ||
+    attr.idl_type is Named("OnErrorEventHandler") ||
+    attr.idl_type is Named("OnBeforeUnloadEventHandler")
+  )
+}
+
+///|
+/// Lookup event type from event_type_map, fallback to "Event".
+/// Validates that the type exists in global interfaces.
+fn lookup_event_type(
+  event_type_map : Array[(String, String)],
+  iface_name : String,
+  attr_name : String,
+  interfaces : Array[(String, InterfaceDef)],
 ) -> String {
+  let key = iface_name + "." + attr_name
+  match lookup_pair(event_type_map, key) {
+    Some(t) =>
+      if interfaces.iter().any(fn(e) { e.0 == t }) {
+        t
+      } else {
+        "Event"
+      }
+    None => "Event"
+  }
+}
+
+///|
+/// Generate typed event handler setter
+/// e.g. pub extern "js" fn HTMLElement::set_onclick(self : HTMLElement, handler : (PointerEvent) -> Unit) -> Unit =
+///        #| (self, handler) => { self.onclick = (e) => handler(e) }
+fn gen_event_handler_setter(
+  interface_name : String,
+  attr : AttributeDef,
+  event_type : String,
+) -> String {
+  let fn_name = "set_" + to_snake_case(attr.name)
+  let result = StringBuilder::new()
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(interface_name)
+  result.write_string("::")
+  result.write_string(fn_name)
+  result.write_string("(self : ")
+  result.write_string(interface_name)
+  result.write_string(", handler : (")
+  result.write_string(event_type)
+  result.write_string(") -> Unit) -> Unit =\n")
+  result.write_string("  #| (self, handler) => { self.")
+  result.write_string(attr.name)
+  result.write_string(" = (e) => handler(e) }\n")
+  result.to_string()
+}
+
+///|
+/// Generate clear method for event handler (sets to null)
+/// e.g. pub extern "js" fn HTMLElement::clear_onclick(self : HTMLElement) -> Unit =
+///        #| (self) => { self.onclick = null }
+fn gen_event_handler_clear(
+  interface_name : String,
+  attr : AttributeDef,
+) -> String {
+  let fn_name = "clear_" + to_snake_case(attr.name)
+  let result = StringBuilder::new()
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(interface_name)
+  result.write_string("::")
+  result.write_string(fn_name)
+  result.write_string("(self : ")
+  result.write_string(interface_name)
+  result.write_string(") -> Unit =\n")
+  result.write_string("  #| (self) => { self.")
+  result.write_string(attr.name)
+  result.write_string(" = null }\n")
+  result.to_string()
+}
+
+///|
+/// Check if a member key is in the deprecated set
+fn is_deprecated(
+  deprecated_set : Array[String],
+  iface_name : String,
+  member_name : String,
+) -> Bool {
+  let key = iface_name + "." + member_name
+  deprecated_set.contains(key)
+}
+
+///|
+/// Generate deprecated annotation line
+fn gen_deprecated_annotation(member_label : String) -> String {
+  "///| @alert deprecated \"" + member_label + " is deprecated\"\n"
+}
+
+///|
+pub fn gen_interface_binding(iface : InterfaceDef, ctx : GenContext) -> String {
+  let enum_map = ctx.enum_map
+  let interfaces = ctx.interfaces
+  let inheritance_map = ctx.inheritance_map
+  let dict_map = ctx.dict_map
+  let union_typedef_map = ctx.union_typedef_map
+  let deprecated_set = ctx.deprecated_set
+  let event_type_map = ctx.event_type_map
   let result = StringBuilder::new()
 
   // Segment marker (for avoiding 65535 line limit in large files)
@@ -2013,6 +2243,9 @@ pub fn gen_interface_binding(
   // Generate downcast methods (parent -> child)
   result.write_string(gen_downcast_methods(iface, inheritance_map))
 
+  // Pre-generate error enums for throwing members
+  result.write_string(gen_error_enums_for_members(iface.name, iface.members))
+
   // Track generated method names to avoid duplicates
   let generated_methods : Array[String] = []
   let generated_constants : Array[String] = []
@@ -2077,6 +2310,9 @@ pub fn gen_interface_binding(
             // static operation - handle overloads
             let base_fn_name = to_snake_case(op.name)
             if !generated_methods.contains(base_fn_name) {
+              if is_deprecated(deprecated_set, iface.name, op.name) {
+                result.write_string(gen_deprecated_annotation(op.name))
+              }
               // Find all static operations with this name
               let group : Array[OperationDef] = operation_groups
                 .iter()
@@ -2113,6 +2349,9 @@ pub fn gen_interface_binding(
             // Regular operation - handle both overloads and optional arguments
             let base_fn_name = to_snake_case(op.name)
             if !generated_methods.contains(base_fn_name) {
+              if is_deprecated(deprecated_set, iface.name, op.name) {
+                result.write_string(gen_deprecated_annotation(op.name))
+              }
               // Find all operations with this name
               let mut group : Array[OperationDef] = []
               for j = 0; j < operation_groups.length(); j = j + 1 {
@@ -2136,29 +2375,78 @@ pub fn gen_interface_binding(
             }
           }
         }
-      Attribute(attr) => {
-        let getter_name = "get_" + to_snake_case(attr.name)
-        if !generated_methods.contains(getter_name) {
-          generated_methods.push(getter_name)
-          result.write_string(gen_attribute_getter(iface.name, attr, enum_map~))
-          result.write_string("\n")
-        }
-        if !attr.is_readonly {
+      Attribute(attr) =>
+        if is_any_event_handler_attr(attr) {
+          // Event handler: setter + clear, no getter
           let setter_name = "set_" + to_snake_case(attr.name)
           if !generated_methods.contains(setter_name) {
             generated_methods.push(setter_name)
-            let setter = gen_attribute_setter(iface.name, attr, enum_map~)
-            if setter != "" {
-              result.write_string(setter)
-              result.write_string("\n")
+            if is_deprecated(deprecated_set, iface.name, attr.name) {
+              result.write_string(gen_deprecated_annotation(attr.name))
+            }
+            if attr.idl_type is Named("EventHandler") {
+              // Typed event handler: (EventType) -> Unit
+              let event_type = lookup_event_type(
+                event_type_map,
+                iface.name,
+                attr.name,
+                interfaces,
+              )
+              result.write_string(
+                gen_event_handler_setter(iface.name, attr, event_type),
+              )
+            } else {
+              // OnErrorEventHandler/OnBeforeUnloadEventHandler: normal setter
+              let setter = gen_attribute_setter(iface.name, attr, enum_map~)
+              if setter != "" {
+                result.write_string(setter)
+              }
+            }
+            result.write_string("\n")
+          }
+          let clear_name = "clear_" + to_snake_case(attr.name)
+          if !generated_methods.contains(clear_name) {
+            generated_methods.push(clear_name)
+            if is_deprecated(deprecated_set, iface.name, attr.name) {
+              result.write_string(gen_deprecated_annotation(attr.name))
+            }
+            result.write_string(gen_event_handler_clear(iface.name, attr))
+            result.write_string("\n")
+          }
+        } else {
+          let getter_name = "get_" + to_snake_case(attr.name)
+          if !generated_methods.contains(getter_name) {
+            generated_methods.push(getter_name)
+            if is_deprecated(deprecated_set, iface.name, attr.name) {
+              result.write_string(gen_deprecated_annotation(attr.name))
+            }
+            result.write_string(
+              gen_attribute_getter(iface.name, attr, enum_map~),
+            )
+            result.write_string("\n")
+          }
+          if !attr.is_readonly {
+            let setter_name = "set_" + to_snake_case(attr.name)
+            if !generated_methods.contains(setter_name) {
+              generated_methods.push(setter_name)
+              if is_deprecated(deprecated_set, iface.name, attr.name) {
+                result.write_string(gen_deprecated_annotation(attr.name))
+              }
+              let setter = gen_attribute_setter(iface.name, attr, enum_map~)
+              if setter != "" {
+                result.write_string(setter)
+                result.write_string("\n")
+              }
             }
           }
         }
-      }
       Constructor(_) =>
         // Generate all constructor overloads (handled once via gen_all_constructors)
         if !has_constructor {
           has_constructor = true
+          if is_deprecated(deprecated_set, iface.name, "constructor") {
+            result.write_string(gen_deprecated_annotation("constructor"))
+          }
           result.write_string(
             gen_all_constructors(iface.name, iface.members, enum_map, dict_map~),
           )

@@ -299,7 +299,8 @@ fn gen_field_value_expr(
 /// MoonBit JS backend Option representations:
 ///   - String?:    None=undefined, Some=value  → pass-through
 ///   - Bool?:      None=-1, Some=true/false    → -1 to undefined conversion
-///   - Int?/Double?: None=undefined, Some=value → pass-through (TODO: verify)
+///   - Int?:         None=undefined, Some=value  → pass-through
+///   - Double?:      None={$tag:0}, Some={$tag:1,_0:v} → tagged unwrap
 ///   - Enum?:      None=undefined, Some=index  → undefined check + array lookup
 ///   - Named?:     None={$tag:0}, Some={$tag:1,_0:v} → tagged unwrap
 fn gen_optional_field_value_expr(
@@ -318,7 +319,8 @@ fn gen_optional_field_value_expr(
         ")"
     _ => ()
   }
-  // String?, Int?, Double? use undefined/value representation → pass-through
+  // String?, Int? use undefined/value representation → pass-through
+  // (Double? is tagged, handled below)
   if is_primitive_option_type(idl_type) {
     return "self." + field_name
   }
@@ -1247,7 +1249,8 @@ fn gen_from_js_optional_field_expr(
     Primitive("boolean") => return "(" + v + " === undefined ? -1 : " + v + ")"
     _ => ()
   }
-  // String?, Int?, Double?: pass-through (undefined = None)
+  // String?, Int?: pass-through (undefined = None)
+  // (Double? is tagged, handled below)
   if is_primitive_option_type(idl_type) {
     return v
   }

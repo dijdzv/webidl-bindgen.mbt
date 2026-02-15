@@ -188,7 +188,16 @@ pub fn escape_reserved(name : String) -> String {
 /// Check if an IdlType uses the primitive Option representation (undefined/value)
 /// vs the tagged representation ({ $tag: 0/1 })
 pub fn is_primitive_option_type(inner_type : IdlType) -> Bool {
-  inner_type is (String | Primitive(_))
+  match inner_type {
+    String => true
+    // Double? uses tagged representation ({$tag:0/1}), not pass-through
+    Primitive("float")
+    | Primitive("unrestricted float")
+    | Primitive("double")
+    | Primitive("unrestricted double") => false
+    Primitive(_) => true
+    _ => false
+  }
 }
 
 ///|
@@ -354,4 +363,280 @@ pub fn primitive_to_moonbit(name : String) -> String {
       "JsValue"
     }
   }
+}
+
+///|
+/// Generate error enum name from method name.
+/// "setAttribute" -> "SetAttributeError"
+/// If interface_prefix is provided: "ElementSetAttributeError"
+pub fn gen_error_enum_name(
+  method_name : String,
+  interface_prefix? : String = "",
+) -> String {
+  let pascal = to_pascal_case(method_name)
+  if interface_prefix == "" {
+    pascal + "Error"
+  } else {
+    interface_prefix + pascal + "Error"
+  }
+}
+
+///|
+/// Generate the MoonBit return type for a throwing method.
+/// Non-void: Result[ReturnType, ErrorEnumName]
+/// Void: Result[Unit, ErrorEnumName]
+pub fn gen_throwing_return_type(
+  return_type : String,
+  error_enum_name : String,
+) -> String {
+  "Result[" + return_type + ", " + error_enum_name + "]"
+}
+
+///|
+/// Wrap a JS call expression with try-catch for throwing methods.
+/// Returns a JS expression that produces Result[T, E] representation.
+/// Ok = {$tag: 1, _0: value}, Err = {$tag: 0, _0: classified_error}
+pub fn wrap_throwing_js_expr(
+  js_expr : String,
+  return_type : IdlType,
+  exceptions : Array[String],
+) -> String {
+  let classify = gen_inline_classify_js(exceptions)
+  let ok_value = match return_type {
+    Void => "undefined"
+    _ => wrap_return_expr(js_expr, return_type)
+  }
+  let is_void = return_type is Void
+  if is_void {
+    "(() => { try { " +
+    js_expr +
+    "; return { $tag: 1, _0: undefined }; } catch(e) { return { $tag: 0, _0: " +
+    classify +
+    " }; } })()"
+  } else {
+    "(() => { try { return { $tag: 1, _0: " +
+    ok_value +
+    " }; } catch(e) { return { $tag: 0, _0: " +
+    classify +
+    " }; } })()"
+  }
+}
+
+///|
+/// Wrap a Promise JS call expression with .then().catch() for throwing methods.
+/// Returns a JS expression that produces Promise[Result[T, E]] representation.
+/// Ok = {$tag: 1, _0: value}, Err = {$tag: 0, _0: classified_error}
+pub fn wrap_promise_throwing_js_expr(
+  js_expr : String,
+  inner_type : IdlType,
+  exceptions : Array[String],
+) -> String {
+  let classify = gen_inline_classify_js(exceptions)
+  let ok_value = match inner_type {
+    Void => "({ $tag: 1, _0: undefined })"
+    _ => {
+      let inner_wrapped = wrap_return_expr("r", inner_type)
+      "({ $tag: 1, _0: " + inner_wrapped + " })"
+    }
+  }
+  js_expr +
+  ".then(r => " +
+  ok_value +
+  ").catch(e => ({ $tag: 0, _0: " +
+  classify +
+  " }))"
+}
+
+///|
+/// Compute throws context for code generation.
+/// Returns (effective_return_type, is_throwing).
+/// For Promise-returning methods: Promise[Result[T, E]] (rejection-based errors).
+/// For non-Promise methods: Result[T, E] (synchronous try-catch).
+pub fn compute_throws_context(
+  throws : Array[String],
+  method_name : String,
+  interface_name : String,
+  base_return_type : String,
+  idl_return_type? : IdlType = Void,
+) -> (String, Bool) {
+  if throws.length() > 0 {
+    let error_enum_name = gen_error_enum_name(
+      method_name,
+      interface_prefix=interface_name,
+    )
+    match idl_return_type {
+      Promise(inner) => {
+        let inner_type = idl_type_to_moonbit(inner)
+        let result_type = gen_throwing_return_type(inner_type, error_enum_name)
+        ("Promise[" + result_type + "]", true)
+      }
+      _ => (gen_throwing_return_type(base_return_type, error_enum_name), true)
+    }
+  } else {
+    (base_return_type, false)
+  }
+}
+
+///|
+/// Wrap JS expression with throws handling if needed.
+pub fn wrap_return_or_throwing(
+  js_expr : String,
+  return_type : IdlType,
+  is_throwing : Bool,
+  throws : Array[String],
+) -> String {
+  if is_throwing {
+    match return_type {
+      Promise(inner) => wrap_promise_throwing_js_expr(js_expr, inner, throws)
+      _ => wrap_throwing_js_expr(js_expr, return_type, throws)
+    }
+  } else {
+    wrap_return_expr(js_expr, return_type)
+  }
+}
+
+///|
+/// Check if string starts with prefix (JS FFI)
+extern "js" fn starts_with(s : String, prefix : String) -> Bool =
+  #| (s, prefix) => s.startsWith(prefix)
+
+///|
+/// Slice string from start index (JS String.slice)
+extern "js" fn string_from(s : String, start : Int) -> String =
+  #| (s, start) => s.slice(start)
+
+///|
+/// Check if an array of (String, String) pairs contains a key
+pub fn lookup_pair(pairs : Array[(String, String)], key : String) -> String? {
+  for entry in pairs {
+    if entry.0 == key {
+      return Some(entry.1)
+    }
+  }
+  None
+}
+
+///|
+/// Set a value in a (String, String) pair array, overwriting if key exists.
+pub fn set_pair(
+  pairs : Array[(String, String)],
+  key : String,
+  value : String,
+) -> Unit {
+  for i, entry in pairs {
+    if entry.0 == key {
+      pairs[i] = (key, value)
+      return
+    }
+  }
+  pairs.push((key, value))
+}
+
+///|
+/// Find index of first dot in string (-1 if not found)
+extern "js" fn find_dot_index(s : String) -> Int =
+  #| (s) => s.indexOf('.')
+
+///|
+/// Slice string from start to end index (JS String.slice)
+extern "js" fn string_slice(s : String, start : Int, end : Int) -> String =
+  #| (s, start, end) => s.slice(start, end)
+
+///|
+/// Pre-generate error enums for all throwing members.
+/// Returns the generated MoonBit code and deduplicates by enum name.
+pub fn gen_error_enums_for_members(
+  name : String,
+  members : Array[InterfaceMember],
+) -> String {
+  let result = StringBuilder::new()
+  let generated : Array[String] = []
+  for mem in members {
+    let (member_name, throws) = match mem {
+      Operation(op) =>
+        if op.throws.length() > 0 && !op.name.is_empty() {
+          (op.name, op.throws)
+        } else {
+          continue
+        }
+      Constructor(ctor) =>
+        if ctor.throws.length() > 0 {
+          ("constructor", ctor.throws)
+        } else {
+          continue
+        }
+      Attribute(attr) =>
+        if attr.setter_throws.length() > 0 {
+          ("set_" + attr.name, attr.setter_throws)
+        } else {
+          continue
+        }
+      _ => continue
+    }
+    let enum_name = gen_error_enum_name(member_name, interface_prefix=name)
+    if !generated.contains(enum_name) {
+      generated.push(enum_name)
+      result.write_string(gen_error_enum(enum_name, throws))
+    }
+  }
+  result.to_string()
+}
+
+///|
+/// Sort exceptions alphabetically for consistent $tag ordering.
+/// Both gen_error_enum and gen_inline_classify_js must use
+/// the same order so that enum variant tags match catch-block tags.
+fn sort_exceptions(exceptions : Array[String]) -> Array[String] {
+  let sorted = exceptions.copy()
+  sorted.sort()
+  sorted
+}
+
+///|
+/// Generate error enum + classify FFI for throwing methods.
+/// exceptions: sorted list of exception names (e.g., ["HierarchyRequestError", "NotFoundError"])
+/// Returns the MoonBit code for the enum definition + classify function.
+pub fn gen_error_enum(enum_name : String, exceptions : Array[String]) -> String {
+  let result = StringBuilder::new()
+  // Segment marker
+  result.write_string("///|\n")
+  result.write_string("/// Error type for throwing methods\n")
+  result.write_string("pub(all) enum ")
+  result.write_string(enum_name)
+  result.write_string(" {\n")
+  let sorted = sort_exceptions(exceptions)
+  sorted
+  .iter()
+  .each(fn(ex) {
+    result.write_string("  ")
+    result.write_string(capitalize_first(ex))
+    result.write_string("(JsError)\n")
+  })
+  // OtherError catch-all (always last)
+  result.write_string("  OtherError(JsError)\n")
+  result.write_string("} derive(Show)\n\n")
+  result.to_string()
+}
+
+///|
+/// Generate inline JS classify expression for catch blocks.
+/// Replaces the separate classify FFI function to avoid DCE issues.
+/// Returns an IIFE that reads `e` from enclosing scope and returns the
+/// correct tagged error variant.
+/// Example output: (() => { const n = (e && e.name) || ''; if (n === 'TypeError') return { $tag: 0, _0: e }; return { $tag: 1, _0: e }; })()
+pub fn gen_inline_classify_js(exceptions : Array[String]) -> String {
+  let sorted = sort_exceptions(exceptions)
+  let result = StringBuilder::new()
+  result.write_string("(() => { const n = (e && e.name) || '';")
+  for i, ex in sorted {
+    result.write_string(" if (n === '")
+    result.write_string(ex)
+    result.write_string("') return { $tag: ")
+    result.write_string(i.to_string())
+    result.write_string(", _0: e };")
+  }
+  result.write_string(" return { $tag: ")
+  result.write_string(sorted.length().to_string())
+  result.write_string(", _0: e }; })()")
+  result.to_string()
 }
