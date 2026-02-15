@@ -669,7 +669,7 @@ pub fn apply_event_type_overrides(
 ///|
 /// Built-in throws overrides. Edit here to add/remove entries MDN doesn't detect.
 let builtin_throws_overrides : String =
-  #|{"add":{"Animation.finish":["InvalidStateError"]},"remove":[]}
+  #|{"add":{"Animation.finish":["InvalidStateError"]},"remove":["DOMTokenList.item","NodeList.item","DOMStringList.item","DOMStringList.contains"]}
 
 ///|
 /// Apply built-in overrides to the ThrowsMap.
