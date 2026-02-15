@@ -163,6 +163,12 @@ async fn main {
     write_file_sync(report_file, gen_not_found_report(mdn_result))
     println("Writing: " + report_file)
   }
+  if mdn_result.event_not_found.length() > 0 ||
+    mdn_result.event_unparsed.length() > 0 {
+    let report_file = path_join(args.output, "event_type_report.md")
+    write_file_sync(report_file, gen_event_type_report(mdn_result))
+    println("Writing: " + report_file)
+  }
 
   // Generate per-spec MoonBit files
   println("Generating per-spec MoonBit files...")

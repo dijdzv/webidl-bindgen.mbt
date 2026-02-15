@@ -214,6 +214,8 @@ pub struct MdnThrowsResult {
   has_section_but_no_parse_entries : Array[String]
   deprecated_set : Array[String] // "Interface.member" or "Interface.constructor"
   event_type_map : Array[(String, String)] // "Interface.onclick" → "PointerEvent"
+  event_not_found : Array[String] // "Mixin.eventname" entries with 404 after all retries
+  event_unparsed : Array[String] // "Mixin.eventname" entries where page found but type not extracted
 }
 
 ///|
@@ -254,6 +256,102 @@ pub fn gen_not_found_report(result : MdnThrowsResult) -> String {
       "This may indicate an unrecognized MDN format that the parser should handle.\n\n",
     )
     for entry in result.has_section_but_no_parse_entries {
+      sb.write_string("- " + entry + "\n")
+    }
+    sb.write_string("\n")
+  }
+  sb.to_string()
+}
+
+///|
+/// Generate a markdown report of event type coverage gaps.
+pub fn gen_event_type_report(result : MdnThrowsResult) -> String {
+  let sb = StringBuilder::new()
+  sb.write_string("# Event Type Coverage Report\n\n")
+  // Summary
+  let mut specific = 0
+  let mut event_typed = 0
+  for entry in result.event_type_map {
+    if entry.1 == "Event" {
+      event_typed = event_typed + 1
+    } else {
+      specific = specific + 1
+    }
+  }
+  let total_map = result.event_type_map.length()
+  sb.write_string("## Summary\n\n")
+  sb.write_string("| Category | Count |\n")
+  sb.write_string("|----------|-------|\n")
+  sb.write_string(
+    "| Resolved (specific type) | " + specific.to_string() + " |\n",
+  )
+  sb.write_string(
+    "| Resolved (Event type) | " + event_typed.to_string() + " |\n",
+  )
+  sb.write_string(
+    "| Not found (no MDN page) | " +
+    result.event_not_found.length().to_string() +
+    " |\n",
+  )
+  sb.write_string(
+    "| Found but type not extracted | " +
+    result.event_unparsed.length().to_string() +
+    " |\n",
+  )
+  sb.write_string(
+    "| **Total map entries** | **" + total_map.to_string() + "** |\n",
+  )
+  sb.write_string("\n")
+  // Not found section (exclude entries resolved by overrides)
+  let unresolved : Array[String] = []
+  for entry in result.event_not_found {
+    // entry is "Mixin.oneventname" — check if resolved in event_type_map
+    if lookup_pair(result.event_type_map, entry) is Some(_) {
+      continue
+    }
+    // Also check bare attr name overrides (e.g. "onsubmit")
+    let dot_idx = find_dot_index(entry)
+    if dot_idx >= 0 {
+      let attr_part = string_from(entry, dot_idx + 1)
+      let mut overridden = false
+      for override_ in builtin_event_type_overrides {
+        if override_.0 == attr_part {
+          overridden = true
+          break
+        }
+      }
+      if overridden {
+        continue
+      }
+    }
+    unresolved.push(entry)
+  }
+  if unresolved.length() > 0 {
+    sb.write_string("## Not Found (" + unresolved.length().to_string() + ")\n\n")
+    sb.write_string(
+      "These events have no MDN page. The handler type falls back to `Event`.\n",
+    )
+    sb.write_string(
+      "Most GlobalEventHandlers entries are genuinely `Event` type (media events, form events, etc.).\n",
+    )
+    sb.write_string(
+      "To fix specific types, add entries to `builtin_event_type_overrides` in `throws_mdn.mbt`.\n\n",
+    )
+    for entry in unresolved {
+      sb.write_string("- " + entry + "\n")
+    }
+    sb.write_string("\n")
+  }
+  // Unparsed section
+  if result.event_unparsed.length() > 0 {
+    sb.write_string("## Found But Type Not Extracted\n\n")
+    sb.write_string(
+      "MDN page exists but `## Event type` section could not be parsed.\n",
+    )
+    sb.write_string(
+      "The parser may need to handle a new format, or the page may not have an Event type section.\n\n",
+    )
+    for entry in result.event_unparsed {
       sb.write_string("- " + entry + "\n")
     }
     sb.write_string("\n")
@@ -327,6 +425,8 @@ pub async fn build_throws_map_from_mdn(
     has_section_but_no_parse_entries: [],
     deprecated_set: [],
     event_type_map: [],
+    event_not_found: [],
+    event_unparsed: [],
   }
   // 1. Build includes map for mixin resolution
   let includes_map = build_includes_map(definitions)
@@ -353,6 +453,8 @@ pub async fn build_throws_map_from_mdn(
   let has_section_but_no_parse_entries : Array[String] = []
   let deprecated_set : Array[String] = []
   let event_type_map : Array[(String, String)] = []
+  let event_not_found : Array[String] = []
+  let event_unparsed : Array[String] = []
   // Collect event 404s for retry
   let event_retry_entries : Array[MdnLookupEntry] = []
   for i = 0; i < count; i = i + 1 {
@@ -373,6 +475,9 @@ pub async fn build_throws_map_from_mdn(
       if event_type != "" {
         let key = entry.iface_for_key + ".on" + entry.member_name
         event_type_map.push((key, event_type))
+      } else {
+        let label = entry.iface_for_url + "/" + entry.member_name + "_event"
+        event_unparsed.push(label)
       }
       continue
     }
@@ -467,7 +572,10 @@ pub async fn build_throws_map_from_mdn(
     // Add truly not-found events (not resolved by any retry)
     for entry in event_retry_entries {
       if !resolved_events.contains(entry.member_name) {
-        not_found_entries.push(format_entry_label(entry))
+        let label = entry.iface_for_key + ".on" + entry.member_name
+        if !event_not_found.contains(label) {
+          event_not_found.push(label)
+        }
       }
     }
   }
@@ -505,6 +613,8 @@ pub async fn build_throws_map_from_mdn(
     has_section_but_no_parse_entries,
     deprecated_set,
     event_type_map,
+    event_not_found,
+    event_unparsed,
   }
 }
 
