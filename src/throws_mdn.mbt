@@ -3,31 +3,9 @@
 // to detect which methods/constructors/attributes throw.
 
 ///|
-/// Build includes map: mixin_name → first target interface name.
-/// Used to resolve mixin member MDN URLs (MDN uses target interface, not mixin name).
+/// Build includes map: mixin_name → ALL target interface names.
+/// Used to expand event_type_map keys and resolve mixin member MDN URLs.
 fn build_includes_map(
-  definitions : Array[Definition],
-) -> Array[(String, String)] {
-  let map : Array[(String, String)] = []
-  for def in definitions {
-    match def {
-      Includes(inc) => {
-        // Only record first mapping for each mixin
-        let exists = map.iter().any(fn(e) { e.0 == inc.includes })
-        if !exists {
-          map.push((inc.includes, inc.target))
-        }
-      }
-      _ => ()
-    }
-  }
-  map
-}
-
-///|
-/// Build full includes map: mixin_name → ALL target interface names.
-/// Used to expand event_type_map keys from mixin to all targets.
-fn build_full_includes_map(
   definitions : Array[Definition],
 ) -> Array[(String, Array[String])] {
   let map : Array[(String, Array[String])] = []
@@ -87,7 +65,7 @@ struct MdnLookupEntry {
 /// Collect all members that need MDN lookup.
 fn collect_lookup_entries(
   definitions : Array[Definition],
-  includes_map : Array[(String, String)],
+  includes_map : Array[(String, Array[String])],
 ) -> Array[MdnLookupEntry] {
   let entries : Array[MdnLookupEntry] = []
   for def in definitions {
@@ -99,8 +77,15 @@ fn collect_lookup_entries(
       _ => continue
     }
     let iface_for_url = if is_mixin {
-      match lookup_pair(includes_map, iface_name) {
-        Some(target) => target
+      let mut target : String? = None
+      for entry in includes_map {
+        if entry.0 == iface_name {
+          target = Some(entry.1[0])
+          break
+        }
+      }
+      match target {
+        Some(t) => t
         None => continue // mixin with no known target
       }
     } else {
@@ -526,7 +511,6 @@ pub async fn build_throws_map_from_mdn(
   }
   // 1. Build includes map for mixin resolution
   let includes_map = build_includes_map(definitions)
-  let full_includes_map = build_full_includes_map(definitions)
   let parent_map = build_parent_map(definitions)
   // 2. Collect all lookup entries
   let raw_entries = collect_lookup_entries(definitions, includes_map)
@@ -619,7 +603,7 @@ pub async fn build_throws_map_from_mdn(
     )
   }
   // 6. Expand event_type_map: mixin keys → all target interface keys
-  expand_mixin_events(event_type_map, full_includes_map)
+  expand_mixin_events(event_type_map, includes_map)
   {
     throws_map: map,
     total_fetched: count,
@@ -658,7 +642,7 @@ pub fn apply_event_type_overrides(
   event_type_map : Array[(String, String)],
   definitions : Array[Definition],
 ) -> Int {
-  let full_includes_map = build_full_includes_map(definitions)
+  let includes_map = build_includes_map(definitions)
   let mut added = 0
   for override_ in builtin_event_type_overrides {
     let (key_or_attr, event_type) = override_
@@ -668,7 +652,7 @@ pub fn apply_event_type_overrides(
       added = added + 1
     } else {
       // Bare attr name: expand via mixin targets (fill missing only)
-      for mapping in full_includes_map {
+      for mapping in includes_map {
         for target in mapping.1 {
           let key = target + "." + key_or_attr
           if lookup_pair(event_type_map, key) is None {

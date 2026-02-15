@@ -50,7 +50,7 @@ fn gen_union_arg_overloads(
 ) -> String {
   let result = StringBuilder::new()
   let base_fn_name = op.name |> to_snake_case |> escape_reserved
-  let (return_type, is_throwing, _) = compute_throws_context(
+  let (return_type, is_throwing) = compute_throws_context(
     op.throws,
     op.name,
     interface_name,
@@ -144,7 +144,7 @@ fn gen_static_union_arg_overloads(
 ) -> String {
   let result = StringBuilder::new()
   let base_fn_name = op.name |> to_snake_case |> escape_reserved
-  let (return_type, is_throwing, _) = compute_throws_context(
+  let (return_type, is_throwing) = compute_throws_context(
     op.throws,
     op.name,
     interface_name,
@@ -322,13 +322,11 @@ fn gen_constructor_union_arg_overloads(
       js_call_args.to_string() +
       ")"
     if is_throwing {
+      result.write_string(") => ")
       result.write_string(
-        ") => (() => { try { return { $tag: 1, _0: " +
-        js_ctor_expr +
-        " }; } catch(e) { return { $tag: 0, _0: " +
-        gen_inline_classify_js(ctor.throws) +
-        " }; } })()\n\n",
+        wrap_throwing_js_expr(js_ctor_expr, Named(interface_name), ctor.throws),
       )
+      result.write_string("\n\n")
     } else {
       result.write_string(") => ")
       result.write_string(js_ctor_expr)

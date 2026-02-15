@@ -53,7 +53,7 @@ extern "js" fn parse_mdn_exceptions_js(markdown : String) -> JsArray =
   #|   const start = excMatch.index + excMatch[0].length;
   #|   const rest = md.slice(start);
   #|   const nextSection = rest.search(/^##\s/m);
-  #|   const section = nextSection > 0 ? rest.slice(0, nextSection) : rest;
+  #|   const section = nextSection >= 0 ? rest.slice(0, nextSection) : rest;
   #|   const names = new Set();
   #|   const re1 = /[`-]\s*`(\w+)`\s*\{\{domxref\("DOMException"\)\}\}/gi;
   #|   let m;
@@ -64,7 +64,7 @@ extern "js" fn parse_mdn_exceptions_js(markdown : String) -> JsArray =
   #|   while ((m = re3.exec(section)) !== null) names.add(m[1]);
   #|   const re4 = /[`-]\s*\{\{domxref\("(\w+Error)"\)\}\}/gi;
   #|   while ((m = re4.exec(section)) !== null) names.add(m[1]);
-  #|   const re5 = /\[`(\w+Error?)`\]\(\/en-US\/docs\//g;
+  #|   const re5 = /\[`(\w+Error)`\]\(\/en-US\/docs\//g;
   #|   while ((m = re5.exec(section)) !== null) names.add(m[1]);
   #|   const re6 = /\{\{domxref\("DOMException"\)\}\}\s+of\s+type\s+`(\w+)`/gi;
   #|   while ((m = re6.exec(section)) !== null) names.add(m[1]);
@@ -84,7 +84,7 @@ extern "js" fn has_exceptions_section(markdown : String) -> Bool =
   #|   const start = excMatch.index + excMatch[0].length;
   #|   const rest = md.slice(start);
   #|   const nextSection = rest.search(/^##\s/m);
-  #|   const section = (nextSection > 0 ? rest.slice(0, nextSection) : rest).trim();
+  #|   const section = (nextSection >= 0 ? rest.slice(0, nextSection) : rest).trim();
   #|   if (/^\s*None\.?\s*$/i.test(section)) return false;
   #|   if (/no exceptions/i.test(section)) return false;
   #|   if (!/`\w+`/.test(section) && !/\{\{/.test(section) && !/<code>/.test(section)) return false;

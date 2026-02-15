@@ -233,7 +233,7 @@ fn gen_namespace_operation_single(
 ) -> String {
   let op_snake = op.name |> to_snake_case |> escape_reserved
   let fn_name = ns_snake + "_" + op_snake + fn_suffix
-  let (return_type, is_throwing, _) = compute_throws_context(
+  let (return_type, is_throwing) = compute_throws_context(
     op.throws,
     op.name,
     ns_name,
@@ -363,22 +363,7 @@ pub fn gen_namespace_binding(ns : NamespaceDef, ctx : GenContext) -> String {
   result.write_string(ns.name)
   result.write_string(" namespace\n\n")
   // Pre-generate error enums for throwing namespace operations
-  let generated_error_enums : Array[String] = []
-  ns.members
-  .iter()
-  .each(fn(mem) {
-    match mem {
-      Operation(op) =>
-        if op.throws.length() > 0 && !op.name.is_empty() {
-          let enum_name = gen_error_enum_name(op.name, interface_prefix=ns.name)
-          if !generated_error_enums.contains(enum_name) {
-            generated_error_enums.push(enum_name)
-            result.write_string(gen_error_enum(enum_name, op.throws))
-          }
-        }
-      _ => ()
-    }
-  })
+  result.write_string(gen_error_enums_for_members(ns.name, ns.members))
   let generated_fns : Array[String] = []
   let max_variadic_arity = 8 // generate _0 through _7
   for i = 0; i < ns.members.length(); i = i + 1 {
