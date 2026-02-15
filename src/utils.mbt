@@ -498,3 +498,56 @@ pub fn wrap_return_or_throwing(
     wrap_return_expr(js_expr, return_type)
   }
 }
+
+///|
+/// Check if string starts with prefix (JS FFI)
+extern "js" fn starts_with(s : String, prefix : String) -> Bool =
+  #| (s, prefix) => s.startsWith(prefix)
+
+///|
+/// Slice string from start index (JS String.slice)
+extern "js" fn string_from(s : String, start : Int) -> String =
+  #| (s, start) => s.slice(start)
+
+///|
+/// Check if an array of (String, String) pairs contains a key
+pub fn lookup_pair(pairs : Array[(String, String)], key : String) -> String? {
+  for entry in pairs {
+    if entry.0 == key {
+      return Some(entry.1)
+    }
+  }
+  None
+}
+
+///|
+/// Set a value in a (String, String) pair array, overwriting if key exists.
+pub fn set_pair(
+  pairs : Array[(String, String)],
+  key : String,
+  value : String,
+) -> Unit {
+  for i, entry in pairs {
+    if entry.0 == key {
+      pairs[i] = (key, value)
+      return
+    }
+  }
+  pairs.push((key, value))
+}
+
+///|
+/// Check if an array of Strings contains a given string
+pub fn array_has(arr : Array[String], s : String) -> Bool {
+  arr.iter().any(fn(item) { item == s })
+}
+
+///|
+/// Find index of first dot in string (-1 if not found)
+extern "js" fn find_dot_index(s : String) -> Int =
+  #| (s) => s.indexOf('.')
+
+///|
+/// Slice string from start to end index (JS String.slice)
+extern "js" fn string_slice(s : String, start : Int, end : Int) -> String =
+  #| (s, start, end) => s.slice(start, end)

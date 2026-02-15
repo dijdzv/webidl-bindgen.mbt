@@ -142,3 +142,40 @@ extern "js" fn create_js_string_array() -> JsArray =
 /// Push a string to a JS string array
 extern "js" fn push_js_string_array(arr : JsArray, s : String) -> Unit =
   #| (arr, s) => arr.push(s)
+
+///|
+/// Parse YAML frontmatter status field from MDN markdown.
+/// Returns array of status strings like ["deprecated", "experimental"].
+/// Returns empty array if no status field found.
+extern "js" fn parse_mdn_status_js(markdown : String) -> JsArray =
+  #| (md) => {
+  #|   const fmMatch = md.match(/^---\s*\n([\s\S]*?)\n---/);
+  #|   if (!fmMatch) return [];
+  #|   const fm = fmMatch[1];
+  #|   const statusMatch = fm.match(/^status:\s*\n((?:\s+-\s+\w+\n?)+)/m);
+  #|   if (!statusMatch) return [];
+  #|   const items = [];
+  #|   const re = /^\s+-\s+(\w+)/gm;
+  #|   let m;
+  #|   while ((m = re.exec(statusMatch[1])) !== null) items.push(m[1]);
+  #|   return items;
+  #| }
+
+///|
+/// Parse ## Event type section from MDN event page markdown.
+/// Extracts event type from {{domxref("PointerEvent")}} pattern.
+/// Returns empty string if not found.
+extern "js" fn parse_mdn_event_type_js(markdown : String) -> String =
+  #| (md) => {
+  #|   const evMatch = md.match(/^##\s+Event\s+type\b/m);
+  #|   if (!evMatch) return '';
+  #|   const start = evMatch.index + evMatch[0].length;
+  #|   const rest = md.slice(start);
+  #|   const nextSection = rest.search(/^##\s/m);
+  #|   const section = nextSection > 0 ? rest.slice(0, nextSection) : rest;
+  #|   const ref = section.match(/\{\{domxref\(["'](\w+)["']\)\}\}/i);
+  #|   if (ref) return ref[1];
+  #|   const link = section.match(/\[`(\w+Event)`\]/);
+  #|   if (link) return link[1];
+  #|   return '';
+  #| }

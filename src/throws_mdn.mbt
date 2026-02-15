@@ -25,6 +25,36 @@ fn build_includes_map(
 }
 
 ///|
+/// Build full includes map: mixin_name → ALL target interface names.
+/// Used to expand event_type_map keys from mixin to all targets.
+fn build_full_includes_map(
+  definitions : Array[Definition],
+) -> Array[(String, Array[String])] {
+  let map : Array[(String, Array[String])] = []
+  for def in definitions {
+    match def {
+      Includes(inc) => {
+        let mut found = false
+        for entry in map {
+          if entry.0 == inc.includes {
+            if !entry.1.contains(inc.target) {
+              entry.1.push(inc.target)
+            }
+            found = true
+            break
+          }
+        }
+        if !found {
+          map.push((inc.includes, [inc.target]))
+        }
+      }
+      _ => ()
+    }
+  }
+  map
+}
+
+///|
 /// Look up target interface for a mixin name.
 fn resolve_mixin(
   includes_map : Array[(String, String)],
@@ -109,6 +139,17 @@ fn collect_lookup_entries(
             member_name: attr.name,
             entry_type: "attribute",
           })
+          // on* EventHandler attributes: add event entry for typed event handler
+          if starts_with(attr.name, "on") &&
+            attr.idl_type is Named("EventHandler") {
+            let event_name = string_from(attr.name, 2) // strip "on" prefix
+            entries.push({
+              iface_for_url,
+              iface_for_key: iface_name,
+              member_name: event_name,
+              entry_type: "event",
+            })
+          }
         }
         _ => ()
       }
@@ -122,6 +163,9 @@ fn collect_lookup_entries(
 fn mdn_url(iface : String, name : String, entry_type : String) -> String {
   let base = "https://raw.githubusercontent.com/mdn/content/main/files/en-us/web/api/"
   let iface_lower = to_lower_case(iface)
+  if entry_type == "event" {
+    return base + iface_lower + "/" + to_lower_case(name) + "_event/index.md"
+  }
   let member_lower = if entry_type == "constructor" {
     iface_lower
   } else if entry_type == "static_method" {
@@ -155,6 +199,7 @@ fn format_entry_label(entry : MdnLookupEntry) -> String {
     "attribute" => entry.iface_for_url + "." + entry.member_name + " (setter)"
     "static_method" =>
       entry.iface_for_url + "." + entry.member_name + " (static)"
+    "event" => entry.iface_for_url + "." + entry.member_name + " (event)"
     _ => entry.iface_for_url + "." + entry.member_name
   }
 }
@@ -167,6 +212,8 @@ pub struct MdnThrowsResult {
   not_found_entries : Array[String] // "Interface.member" entries with 404
   has_section_but_no_parse : Int // pages with ### Exceptions but no exceptions extracted
   has_section_but_no_parse_entries : Array[String]
+  deprecated_set : Array[String] // "Interface.member" or "Interface.constructor"
+  event_type_map : Array[(String, String)] // "Interface.onclick" → "PointerEvent"
 }
 
 ///|
@@ -215,6 +262,57 @@ pub fn gen_not_found_report(result : MdnThrowsResult) -> String {
 }
 
 ///|
+/// Known parent interfaces for event URL fallback.
+/// When {interface}/{event}_event is 404, try these parents.
+let event_url_fallback_parents : Array[String] = [
+  "Element", "Window", "Document", "HTMLElement",
+]
+
+///|
+/// Build inheritance map for event fallback: interface → parent chain.
+/// E.g. HTMLElement → [Element, Node, EventTarget]
+fn build_parent_map(definitions : Array[Definition]) -> Array[(String, String)] {
+  let map : Array[(String, String)] = []
+  for def in definitions {
+    match def {
+      Interface(iface) =>
+        match iface.inheritance {
+          Some(parent) => map.push((iface.name, parent))
+          None => ()
+        }
+      _ => ()
+    }
+  }
+  map
+}
+
+///|
+/// Get parent chain for an interface (e.g. HTMLElement → [Element, Node, EventTarget])
+fn get_parent_chain(
+  parent_map : Array[(String, String)],
+  iface_name : String,
+) -> Array[String] {
+  let chain : Array[String] = []
+  let mut current = iface_name
+  for i = 0; i < 10; i = i + 1 {
+    // max depth
+    let mut found = false
+    for entry in parent_map {
+      if entry.0 == current {
+        chain.push(entry.1)
+        current = entry.1
+        found = true
+        break
+      }
+    }
+    if !found {
+      break
+    }
+  }
+  chain
+}
+
+///|
 /// Main pipeline: build ThrowsMap from MDN content.
 pub async fn build_throws_map_from_mdn(
   definitions : Array[Definition],
@@ -227,9 +325,13 @@ pub async fn build_throws_map_from_mdn(
     not_found_entries: [],
     has_section_but_no_parse: 0,
     has_section_but_no_parse_entries: [],
+    deprecated_set: [],
+    event_type_map: [],
   }
   // 1. Build includes map for mixin resolution
   let includes_map = build_includes_map(definitions)
+  let full_includes_map = build_full_includes_map(definitions)
+  let parent_map = build_parent_map(definitions)
   // 2. Collect all lookup entries
   let raw_entries = collect_lookup_entries(definitions, includes_map)
   let entries = dedup_entries(raw_entries)
@@ -246,27 +348,56 @@ pub async fn build_throws_map_from_mdn(
   }
   let results = batch_fetch_mdn_promise(urls).wait()
   let count = mdn_results_count(results)
-  // 4. Parse exceptions from each result, track 404s and parse failures
+  // 4. Parse results, track 404s and parse failures
   let not_found_entries : Array[String] = []
   let has_section_but_no_parse_entries : Array[String] = []
+  let deprecated_set : Array[String] = []
+  let event_type_map : Array[(String, String)] = []
+  // Collect event 404s for retry
+  let event_retry_entries : Array[MdnLookupEntry] = []
   for i = 0; i < count; i = i + 1 {
     let content = mdn_result_content(results, i)
+    let entry = entries[i]
     if content == "" {
-      let entry = entries[i]
-      not_found_entries.push(format_entry_label(entry))
+      // Event 404: queue for parent fallback retry
+      if entry.entry_type == "event" {
+        event_retry_entries.push(entry)
+      } else {
+        not_found_entries.push(format_entry_label(entry))
+      }
       continue
     }
+    // Event entries: parse event type only
+    if entry.entry_type == "event" {
+      let event_type = parse_mdn_event_type_js(content)
+      if event_type != "" {
+        let key = entry.iface_for_key + ".on" + entry.member_name
+        event_type_map.push((key, event_type))
+      }
+      continue
+    }
+    // Check deprecated status from YAML frontmatter
+    let status_arr = parse_mdn_status_js(content)
+    let statuses = js_array_to_strings(status_arr)
+    if statuses.iter().any(fn(s) { s == "deprecated" }) {
+      let dep_key = if entry.entry_type == "constructor" {
+        entry.iface_for_key + ".constructor"
+      } else {
+        entry.iface_for_key + "." + entry.member_name
+      }
+      if !deprecated_set.contains(dep_key) {
+        deprecated_set.push(dep_key)
+      }
+    }
+    // Parse exceptions
     let exceptions_arr = parse_mdn_exceptions_js(content)
     let exceptions = js_array_to_strings(exceptions_arr)
     if exceptions.length() == 0 {
-      // Page exists but no exceptions parsed — check if section exists
       if has_exceptions_section(content) {
-        let entry = entries[i]
         has_section_but_no_parse_entries.push(format_entry_label(entry))
       }
       continue
     }
-    let entry = entries[i]
     if entry.entry_type == "attribute" {
       set_attribute_throws(
         map,
@@ -280,6 +411,91 @@ pub async fn build_throws_map_from_mdn(
       set_throws(map, entry.iface_for_key, entry.member_name, exceptions)
     }
   }
+  // 5. Retry event 404s with parent interface fallback URLs
+  if event_retry_entries.length() > 0 {
+    // Build unique retry URLs: for each failed event, try parent chain + known fallbacks
+    let retry_urls = create_js_string_array()
+    let retry_entries : Array[(MdnLookupEntry, String)] = [] // (entry, parent_iface)
+    let seen_retry_keys : Array[String] = []
+    for entry in event_retry_entries {
+      // Get parent chain for the original URL interface
+      let parents = get_parent_chain(parent_map, entry.iface_for_url)
+      // Also add known fallback parents
+      let candidates : Array[String] = []
+      for p in parents {
+        if !candidates.contains(p) {
+          candidates.push(p)
+        }
+      }
+      for p in event_url_fallback_parents {
+        if !candidates.contains(p) && p != entry.iface_for_url {
+          candidates.push(p)
+        }
+      }
+      for parent in candidates {
+        let retry_key = parent + "." + entry.member_name
+        if !seen_retry_keys.contains(retry_key) {
+          seen_retry_keys.push(retry_key)
+          push_js_string_array(
+            retry_urls,
+            mdn_url(parent, entry.member_name, "event"),
+          )
+          retry_entries.push((entry, parent))
+        }
+      }
+    }
+    let retry_results = batch_fetch_mdn_promise(retry_urls).wait()
+    let retry_count = mdn_results_count(retry_results)
+    // Track which event names have been resolved by retry
+    let resolved_events : Array[String] = [] // member_name values that succeeded
+    for i = 0; i < retry_count; i = i + 1 {
+      let content = mdn_result_content(retry_results, i)
+      if content == "" {
+        continue
+      }
+      let (entry, _) = retry_entries[i]
+      if resolved_events.contains(entry.member_name) {
+        continue
+      }
+      let event_type = parse_mdn_event_type_js(content)
+      if event_type != "" {
+        let key = entry.iface_for_key + ".on" + entry.member_name
+        event_type_map.push((key, event_type))
+        resolved_events.push(entry.member_name)
+      }
+    }
+    // Add truly not-found events (not resolved by any retry)
+    for entry in event_retry_entries {
+      if !resolved_events.contains(entry.member_name) {
+        not_found_entries.push(format_entry_label(entry))
+      }
+    }
+  }
+  // 6. Expand event_type_map: mixin keys → all target interface keys
+  let expanded_entries : Array[(String, String)] = []
+  for entry in event_type_map {
+    let (key, event_type) = entry
+    // Check if the interface part of the key is a mixin
+    // Key format: "InterfaceName.oneventname"
+    let dot_idx = find_dot_index(key)
+    if dot_idx >= 0 {
+      let iface_part = string_slice(key, 0, dot_idx)
+      let event_part = string_from(key, dot_idx) // ".oneventname"
+      // Look up in full includes map
+      for mapping in full_includes_map {
+        if mapping.0 == iface_part {
+          // This is a mixin — expand to all targets
+          for target in mapping.1 {
+            let expanded_key = target + event_part
+            expanded_entries.push((expanded_key, event_type))
+          }
+        }
+      }
+    }
+  }
+  for entry in expanded_entries {
+    event_type_map.push(entry)
+  }
   {
     throws_map: map,
     total_fetched: count,
@@ -287,7 +503,57 @@ pub async fn build_throws_map_from_mdn(
     not_found_entries,
     has_section_but_no_parse: has_section_but_no_parse_entries.length(),
     has_section_but_no_parse_entries,
+    deprecated_set,
+    event_type_map,
   }
+}
+
+///|
+/// Built-in event type overrides. Edit here to add entries MDN doesn't detect.
+/// - Bare "on{event}" → expanded to all mixin targets
+/// - "Interface.on{event}" → direct insert for that interface
+let builtin_event_type_overrides : Array[(String, String)] = [
+  // Mixin-wide: MDN documents under sub-interfaces (htmlformelement/ etc.)
+  ("onsubmit", "SubmitEvent"),
+  ("onformdata", "FormDataEvent"),
+  // Interface-specific: MDN page missing or uses different event name
+  ("IDBDatabase.onversionchange", "IDBVersionChangeEvent"),
+  ("SVGAnimationElement.onbegin", "TimeEvent"),
+  ("SVGAnimationElement.onend", "TimeEvent"),
+  ("SVGAnimationElement.onrepeat", "TimeEvent"),
+  ("NDEFReader.onreading", "NDEFReadingEvent"),
+]
+
+///|
+/// Apply event type overrides to the map.
+/// Bare attr names are expanded to all mixin targets.
+/// "Interface.attr" entries are inserted directly.
+pub fn apply_event_type_overrides(
+  event_type_map : Array[(String, String)],
+  definitions : Array[Definition],
+) -> Int {
+  let full_includes_map = build_full_includes_map(definitions)
+  let mut added = 0
+  for override_ in builtin_event_type_overrides {
+    let (key_or_attr, event_type) = override_
+    if find_dot_index(key_or_attr) >= 0 {
+      // Interface-specific: always override
+      set_pair(event_type_map, key_or_attr, event_type)
+      added = added + 1
+    } else {
+      // Bare attr name: expand via mixin targets (fill missing only)
+      for mapping in full_includes_map {
+        for target in mapping.1 {
+          let key = target + "." + key_or_attr
+          if lookup_pair(event_type_map, key) is None {
+            event_type_map.push((key, event_type))
+            added = added + 1
+          }
+        }
+      }
+    }
+  }
+  added
 }
 
 ///|

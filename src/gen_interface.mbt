@@ -2065,6 +2065,94 @@ fn gen_upcast_methods(
 
 ///|
 /// Generate binding code from entire Interface
+
+///|
+/// Check if attribute is an EventHandler on* attribute
+fn is_event_handler_attr(attr : AttributeDef) -> Bool {
+  starts_with(attr.name, "on") && attr.idl_type is Named("EventHandler")
+}
+
+///|
+/// Lookup event type from event_type_map, fallback to "Event"
+fn lookup_event_type(
+  event_type_map : Array[(String, String)],
+  iface_name : String,
+  attr_name : String,
+) -> String {
+  let key = iface_name + "." + attr_name
+  match lookup_pair(event_type_map, key) {
+    Some(t) => t
+    None => "Event"
+  }
+}
+
+///|
+/// Generate typed event handler setter
+/// e.g. pub extern "js" fn HTMLElement::set_onclick(self : HTMLElement, handler : (PointerEvent) -> Unit) -> Unit =
+///        #| (self, handler) => { self.onclick = (e) => handler(e) }
+fn gen_event_handler_setter(
+  interface_name : String,
+  attr : AttributeDef,
+  event_type : String,
+) -> String {
+  let fn_name = "set_" + to_snake_case(attr.name)
+  let result = StringBuilder::new()
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(interface_name)
+  result.write_string("::")
+  result.write_string(fn_name)
+  result.write_string("(self : ")
+  result.write_string(interface_name)
+  result.write_string(", handler : (")
+  result.write_string(event_type)
+  result.write_string(") -> Unit) -> Unit =\n")
+  result.write_string("  #| (self, handler) => { self.")
+  result.write_string(attr.name)
+  result.write_string(" = (e) => handler(e) }\n")
+  result.to_string()
+}
+
+///|
+/// Generate clear method for event handler (sets to null)
+/// e.g. pub extern "js" fn HTMLElement::clear_onclick(self : HTMLElement) -> Unit =
+///        #| (self) => { self.onclick = null }
+fn gen_event_handler_clear(
+  interface_name : String,
+  attr : AttributeDef,
+) -> String {
+  let fn_name = "clear_" + to_snake_case(attr.name)
+  let result = StringBuilder::new()
+  result.write_string("pub extern \"js\" fn ")
+  result.write_string(interface_name)
+  result.write_string("::")
+  result.write_string(fn_name)
+  result.write_string("(self : ")
+  result.write_string(interface_name)
+  result.write_string(") -> Unit =\n")
+  result.write_string("  #| (self) => { self.")
+  result.write_string(attr.name)
+  result.write_string(" = null }\n")
+  result.to_string()
+}
+
+///|
+/// Check if a member key is in the deprecated set
+fn is_deprecated(
+  deprecated_set : Array[String],
+  iface_name : String,
+  member_name : String,
+) -> Bool {
+  let key = iface_name + "." + member_name
+  deprecated_set.contains(key)
+}
+
+///|
+/// Generate deprecated annotation line
+fn gen_deprecated_annotation(member_label : String) -> String {
+  "///| @alert deprecated \"" + member_label + " is deprecated\"\n"
+}
+
+///|
 pub fn gen_interface_binding(
   iface : InterfaceDef,
   enum_map : Array[(String, Array[String])],
@@ -2072,6 +2160,8 @@ pub fn gen_interface_binding(
   inheritance_map? : Array[(String, Array[String])] = [],
   dict_map? : Array[(String, DictionaryDef)] = [],
   union_typedef_map? : Array[(String, Array[IdlType])] = [],
+  deprecated_set? : Array[String] = [],
+  event_type_map? : Array[(String, String)] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -2266,6 +2356,9 @@ pub fn gen_interface_binding(
             // static operation - handle overloads
             let base_fn_name = to_snake_case(op.name)
             if !generated_methods.contains(base_fn_name) {
+              if is_deprecated(deprecated_set, iface.name, op.name) {
+                result.write_string(gen_deprecated_annotation(op.name))
+              }
               // Find all static operations with this name
               let group : Array[OperationDef] = operation_groups
                 .iter()
@@ -2302,6 +2395,9 @@ pub fn gen_interface_binding(
             // Regular operation - handle both overloads and optional arguments
             let base_fn_name = to_snake_case(op.name)
             if !generated_methods.contains(base_fn_name) {
+              if is_deprecated(deprecated_set, iface.name, op.name) {
+                result.write_string(gen_deprecated_annotation(op.name))
+              }
               // Find all operations with this name
               let mut group : Array[OperationDef] = []
               for j = 0; j < operation_groups.length(); j = j + 1 {
@@ -2325,29 +2421,68 @@ pub fn gen_interface_binding(
             }
           }
         }
-      Attribute(attr) => {
-        let getter_name = "get_" + to_snake_case(attr.name)
-        if !generated_methods.contains(getter_name) {
-          generated_methods.push(getter_name)
-          result.write_string(gen_attribute_getter(iface.name, attr, enum_map~))
-          result.write_string("\n")
-        }
-        if !attr.is_readonly {
+      Attribute(attr) =>
+        if is_event_handler_attr(attr) {
+          // Typed event handler: setter + clear, no getter
           let setter_name = "set_" + to_snake_case(attr.name)
           if !generated_methods.contains(setter_name) {
             generated_methods.push(setter_name)
-            let setter = gen_attribute_setter(iface.name, attr, enum_map~)
-            if setter != "" {
-              result.write_string(setter)
-              result.write_string("\n")
+            let event_type = lookup_event_type(
+              event_type_map,
+              iface.name,
+              attr.name,
+            )
+            if is_deprecated(deprecated_set, iface.name, attr.name) {
+              result.write_string(gen_deprecated_annotation(attr.name))
+            }
+            result.write_string(
+              gen_event_handler_setter(iface.name, attr, event_type),
+            )
+            result.write_string("\n")
+          }
+          let clear_name = "clear_" + to_snake_case(attr.name)
+          if !generated_methods.contains(clear_name) {
+            generated_methods.push(clear_name)
+            if is_deprecated(deprecated_set, iface.name, attr.name) {
+              result.write_string(gen_deprecated_annotation(attr.name))
+            }
+            result.write_string(gen_event_handler_clear(iface.name, attr))
+            result.write_string("\n")
+          }
+        } else {
+          let getter_name = "get_" + to_snake_case(attr.name)
+          if !generated_methods.contains(getter_name) {
+            generated_methods.push(getter_name)
+            if is_deprecated(deprecated_set, iface.name, attr.name) {
+              result.write_string(gen_deprecated_annotation(attr.name))
+            }
+            result.write_string(
+              gen_attribute_getter(iface.name, attr, enum_map~),
+            )
+            result.write_string("\n")
+          }
+          if !attr.is_readonly {
+            let setter_name = "set_" + to_snake_case(attr.name)
+            if !generated_methods.contains(setter_name) {
+              generated_methods.push(setter_name)
+              if is_deprecated(deprecated_set, iface.name, attr.name) {
+                result.write_string(gen_deprecated_annotation(attr.name))
+              }
+              let setter = gen_attribute_setter(iface.name, attr, enum_map~)
+              if setter != "" {
+                result.write_string(setter)
+                result.write_string("\n")
+              }
             }
           }
         }
-      }
       Constructor(_) =>
         // Generate all constructor overloads (handled once via gen_all_constructors)
         if !has_constructor {
           has_constructor = true
+          if is_deprecated(deprecated_set, iface.name, "constructor") {
+            result.write_string(gen_deprecated_annotation("constructor"))
+          }
           result.write_string(
             gen_all_constructors(iface.name, iface.members, enum_map, dict_map~),
           )

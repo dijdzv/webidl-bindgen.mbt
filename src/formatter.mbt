@@ -527,6 +527,8 @@ pub fn format_spec_output(
   global_interfaces? : Array[(String, InterfaceDef)] = [],
   global_inheritance_map? : Array[(String, Array[String])] = [],
   global_dict_map? : Array[(String, DictionaryDef)] = [],
+  deprecated_set? : Array[String] = [],
+  event_type_map? : Array[(String, String)] = [],
 ) -> String {
   let result = StringBuilder::new()
 
@@ -641,6 +643,8 @@ pub fn format_spec_output(
         inheritance_map=global_inheritance_map,
         dict_map=global_dict_map,
         union_typedef_map~,
+        deprecated_set~,
+        event_type_map~,
       ),
     )
     result.write_string("\n")

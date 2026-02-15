@@ -103,6 +103,20 @@ async fn main {
     mdn_result.total_fetched.to_string() +
     " pages not found)",
   )
+  if mdn_result.deprecated_set.length() > 0 {
+    println(
+      "Detected " +
+      mdn_result.deprecated_set.length().to_string() +
+      " deprecated members",
+    )
+  }
+  if mdn_result.event_type_map.length() > 0 {
+    println(
+      "Detected " +
+      mdn_result.event_type_map.length().to_string() +
+      " typed event handlers",
+    )
+  }
   if mdn_result.has_section_but_no_parse > 0 {
     println(
       "Warning: " +
@@ -110,7 +124,19 @@ async fn main {
       " pages have ### Exceptions section but no exceptions were parsed",
     )
   }
-  // Apply built-in overrides
+  // Apply built-in event type overrides
+  let event_overrides_added = apply_event_type_overrides(
+    mdn_result.event_type_map,
+    all_defs,
+  )
+  if event_overrides_added > 0 {
+    println(
+      "Applied " +
+      event_overrides_added.to_string() +
+      " event type overrides",
+    )
+  }
+  // Apply built-in throws overrides
   let (added, removed) = apply_throws_overrides(mdn_result.throws_map)
   if added > 0 || removed > 0 {
     println(
@@ -254,6 +280,8 @@ async fn main {
             global_interfaces~,
             global_inheritance_map~,
             global_dict_map~,
+            deprecated_set=mdn_result.deprecated_set,
+            event_type_map=mdn_result.event_type_map,
           )
           if merged.length() > 0 {
             let output_file = path_join(args.output, result.spec_name + ".mbt")
