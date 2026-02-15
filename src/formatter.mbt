@@ -418,6 +418,11 @@ pub fn gen_shared_types_with_externals(
     "pub extern \"js\" fn JsError::name(self : JsError) -> String =\n",
   )
   result.write_string("  #| (self) => (self && self.name) || ''\n\n")
+  result.write_string(
+    "impl Show for JsError with output(self, logger) {\n",
+  )
+  result.write_string("  logger.write_string(self.message())\n")
+  result.write_string("}\n\n")
 
   //External type declarations
   if external_types.length() > 0 {

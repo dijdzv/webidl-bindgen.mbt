@@ -614,7 +614,7 @@ pub fn gen_error_enum(enum_name : String, exceptions : Array[String]) -> String 
   })
   // OtherError catch-all (always last)
   result.write_string("  OtherError(JsError)\n")
-  result.write_string("}\n\n")
+  result.write_string("} derive(Show)\n\n")
   result.to_string()
 }
 
