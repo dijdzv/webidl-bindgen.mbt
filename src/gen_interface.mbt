@@ -2073,15 +2073,22 @@ fn is_event_handler_attr(attr : AttributeDef) -> Bool {
 }
 
 ///|
-/// Lookup event type from event_type_map, fallback to "Event"
+/// Lookup event type from event_type_map, fallback to "Event".
+/// Validates that the type exists in global interfaces.
 fn lookup_event_type(
   event_type_map : Array[(String, String)],
   iface_name : String,
   attr_name : String,
+  interfaces : Array[(String, InterfaceDef)],
 ) -> String {
   let key = iface_name + "." + attr_name
   match lookup_pair(event_type_map, key) {
-    Some(t) => t
+    Some(t) =>
+      if interfaces.iter().any(fn(e) { e.0 == t }) {
+        t
+      } else {
+        "Event"
+      }
     None => "Event"
   }
 }
@@ -2431,6 +2438,7 @@ pub fn gen_interface_binding(
               event_type_map,
               iface.name,
               attr.name,
+              interfaces,
             )
             if is_deprecated(deprecated_set, iface.name, attr.name) {
               result.write_string(gen_deprecated_annotation(attr.name))

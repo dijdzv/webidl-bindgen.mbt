@@ -1320,7 +1320,7 @@ pub fn gen_error_enum(enum_name : String, exceptions : Array[String]) -> String 
   .iter()
   .each(fn(ex) {
     result.write_string("  ")
-    result.write_string(ex)
+    result.write_string(capitalize_first(ex))
     result.write_string("(JsError)\n")
   })
   // OtherError catch-all (always last)
