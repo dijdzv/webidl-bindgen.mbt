@@ -61,6 +61,15 @@ pub extern "js" fn get_constructor_throws(
   #| }
 
 ///|
+/// Delete a throws entry by key ("Interface.method")
+pub extern "js" fn delete_throws(
+  throws_map : ThrowsMap,
+  interface_name : String,
+  method_name : String,
+) -> Unit =
+  #| (map, iface, method) => { map.delete(iface + '.' + method) }
+
+///|
 /// Get throws map size (for stats)
 pub extern "js" fn throws_map_size(throws_map : ThrowsMap) -> Int =
   #| (map) => map.size

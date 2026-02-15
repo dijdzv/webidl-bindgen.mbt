@@ -94,39 +94,6 @@ extern "js" fn has_exceptions_section(markdown : String) -> Bool =
   #| }
 
 ///|
-/// Apply throws overrides JSON to a ThrowsMap.
-/// JSON: { "add": { "I.m": ["E"], "I.a.setter": ["E"] }, "remove": ["I.m"] }
-/// Returns added_count * 1000 + removed_count (packed).
-extern "js" fn apply_throws_overrides_js(
-  map : ThrowsMap,
-  json_str : String,
-) -> Int =
-  #| (map, s) => {
-  #|   const o = JSON.parse(s);
-  #|   const expandKeys = (k) => {
-  #|     if (k.endsWith('.setter')) {
-  #|       const p = k.split('.'), i = p[0], a = p[1];
-  #|       return [i + '.set_' + a, i + '.' + a];
-  #|     }
-  #|     return [k];
-  #|   };
-  #|   let added = 0, removed = 0;
-  #|   if (o.add) {
-  #|     for (const [key, exceptions] of Object.entries(o.add)) {
-  #|       for (const k of expandKeys(key)) map.set(k, exceptions);
-  #|       added++;
-  #|     }
-  #|   }
-  #|   if (o.remove) {
-  #|     for (const key of o.remove) {
-  #|       for (const k of expandKeys(key)) map.delete(k);
-  #|       removed++;
-  #|     }
-  #|   }
-  #|   return added * 1000 + removed;
-  #| }
-
-///|
 /// Convert string to lowercase (JS String.toLowerCase)
 extern "js" fn to_lower_case(s : String) -> String =
   #| (s) => s.toLowerCase()

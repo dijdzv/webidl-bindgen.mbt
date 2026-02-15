@@ -683,13 +683,40 @@ pub fn apply_event_type_overrides(
 }
 
 ///|
-/// Built-in throws overrides. Edit here to add/remove entries MDN doesn't detect.
-let builtin_throws_overrides : String =
-  #|{"add":{"Animation.finish":["InvalidStateError"],"CSSStyleSheet.deleteRule":["IndexSizeError"],"Node.insertBefore":["HierarchyRequestError","NotFoundError"]},"remove":["DOMTokenList.item","NodeList.item","DOMStringList.item","DOMStringList.contains","CSSStyleDeclaration.item","WindowOrWorkerGlobalScope.reportError"]}
+/// Built-in throws overrides: entries MDN doesn't detect.
+/// ("Interface", "method", ["Exception1", ...])
+let builtin_throws_add : Array[(String, String, Array[String])] = [
+  ("Animation", "finish", ["InvalidStateError"]),
+  ("CSSStyleSheet", "deleteRule", ["IndexSizeError"]),
+  ("Node", "insertBefore", ["HierarchyRequestError", "NotFoundError"]),
+]
+
+///|
+/// Built-in throws removals: false positives from MDN.
+/// ("Interface", "method")
+let builtin_throws_remove : Array[(String, String)] = [
+  ("DOMTokenList", "item"),
+  ("NodeList", "item"),
+  ("DOMStringList", "item"),
+  ("DOMStringList", "contains"),
+  ("CSSStyleDeclaration", "item"),
+  ("WindowOrWorkerGlobalScope", "reportError"),
+]
 
 ///|
 /// Apply built-in overrides to the ThrowsMap.
 pub fn apply_throws_overrides(map : ThrowsMap) -> (Int, Int) {
-  let packed = apply_throws_overrides_js(map, builtin_throws_overrides)
-  (packed / 1000, packed % 1000)
+  let mut added = 0
+  for entry in builtin_throws_add {
+    let (iface, op, exceptions) = entry
+    set_throws(map, iface, op, exceptions)
+    added = added + 1
+  }
+  let mut removed = 0
+  for entry in builtin_throws_remove {
+    let (iface, op) = entry
+    delete_throws(map, iface, op)
+    removed = removed + 1
+  }
+  (added, removed)
 }
