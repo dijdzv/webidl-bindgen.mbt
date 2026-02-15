@@ -58,7 +58,7 @@ extern "js" fn parse_mdn_exceptions_js(markdown : String) -> JsArray =
   #|   const re1 = /[`-]\s*`(\w+)`\s*\{\{domxref\("DOMException"\)\}\}/gi;
   #|   let m;
   #|   while ((m = re1.exec(section)) !== null) names.add(m[1]);
-  #|   const re2 = /\{\{jsxref\(["'](\w+)["']\)\}\}/gi;
+  #|   const re2 = /\{\{jsxref\(["'](\w+Error)["']\)\}\}/gi;
   #|   while ((m = re2.exec(section)) !== null) names.add(m[1]);
   #|   const re3 = /[`-]\s*`(\w+Error)`/g;
   #|   while ((m = re3.exec(section)) !== null) names.add(m[1]);
