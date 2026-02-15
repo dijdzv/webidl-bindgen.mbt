@@ -138,7 +138,7 @@ pub fn gen_static_operation_with_suffix(
   }
   let base_fn_name = op.name |> to_snake_case |> escape_reserved
   let fn_name = if suffix == "" { base_fn_name } else { base_fn_name + suffix }
-  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+  let (return_type, is_throwing, _) = compute_throws_context(
     op.throws,
     op.name,
     interface_name,
@@ -214,7 +214,7 @@ pub fn gen_static_operation_with_suffix(
     js_expr,
     op.return_type,
     is_throwing,
-    error_enum_name,
+    op.throws,
   )
   result.write_string(") => ")
   result.write_string(wrapped)
@@ -255,7 +255,7 @@ pub fn gen_static_operation_with_arg_count(
   } else {
     base_fn_name + fn_suffix
   }
-  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+  let (return_type, is_throwing, _) = compute_throws_context(
     op.throws,
     op.name,
     interface_name,
@@ -330,7 +330,7 @@ pub fn gen_static_operation_with_arg_count(
     js_expr,
     op.return_type,
     is_throwing,
-    error_enum_name,
+    op.throws,
   )
   result.write_string(") => ")
   result.write_string(wrapped)
@@ -369,7 +369,7 @@ pub fn gen_special_operation(
       }
       let arg = op.arguments[0]
       let arg_type = idl_type_to_moonbit(arg.idl_type)
-      let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+      let (return_type, is_throwing, _) = compute_throws_context(
         op.throws,
         op.name,
         interface_name,
@@ -408,7 +408,7 @@ pub fn gen_special_operation(
         js_expr,
         op.return_type,
         is_throwing,
-        error_enum_name,
+        op.throws,
       )
       result.write_string(") => ")
       result.write_string(wrapped)
@@ -469,8 +469,8 @@ pub fn gen_special_operation(
         result.write_string(
           "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
         )
-        result.write_string(get_classify_fn_name(error_enum_name))
-        result.write_string("(e) }; } })()\n")
+        result.write_string(gen_inline_classify_js(op.throws))
+        result.write_string(" }; } })()\n")
       } else {
         result.write_string("  #| (self, ")
         result.write_string(index_name)
@@ -523,8 +523,8 @@ pub fn gen_special_operation(
         result.write_string(
           "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
         )
-        result.write_string(get_classify_fn_name(error_enum_name))
-        result.write_string("(e) }; } })()\n")
+        result.write_string(gen_inline_classify_js(op.throws))
+        result.write_string(" }; } })()\n")
       } else {
         result.write_string("  #| (self, ")
         result.write_string(arg_name)
@@ -552,7 +552,7 @@ pub fn gen_operation(
     return ""
   }
   let fn_name = op.name |> to_snake_case |> escape_reserved
-  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+  let (return_type, is_throwing, _) = compute_throws_context(
     op.throws,
     op.name,
     interface_name,
@@ -622,7 +622,7 @@ pub fn gen_operation(
     js_expr,
     op.return_type,
     is_throwing,
-    error_enum_name,
+    op.throws,
   )
   result.write_string(") => ")
   result.write_string(wrapped)
@@ -882,7 +882,7 @@ pub fn gen_operation_with_arg_count(
   } else {
     base_fn_name + "_" + fn_suffix
   }
-  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+  let (return_type, is_throwing, _) = compute_throws_context(
     op.throws,
     op.name,
     interface_name,
@@ -951,7 +951,7 @@ pub fn gen_operation_with_arg_count(
     js_expr,
     op.return_type,
     is_throwing,
-    error_enum_name,
+    op.throws,
   )
   result.write_string(") => ")
   result.write_string(wrapped)
@@ -1396,8 +1396,8 @@ pub fn gen_attribute_setter(
     result.write_string(
       "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: ",
     )
-    result.write_string(get_classify_fn_name(error_enum_name))
-    result.write_string("(e) }; } })()\n")
+    result.write_string(gen_inline_classify_js(attr.setter_throws))
+    result.write_string(" }; } })()\n")
   } else {
     result.write_string("  #| (self, value) => { ")
     result.write_string(assign_expr)
@@ -1511,7 +1511,7 @@ pub fn gen_constructor_with_suffix(
   suffix : String,
   dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+  let (return_type, is_throwing, _) = compute_throws_context(
     ctor.throws,
     "constructor",
     interface_name,
@@ -1582,8 +1582,8 @@ pub fn gen_constructor_with_suffix(
     result.write_string(") => (() => { try { return { $tag: 0, _0: ")
     result.write_string(js_ctor_expr)
     result.write_string(" }; } catch(e) { return { $tag: 1, _0: ")
-    result.write_string(get_classify_fn_name(error_enum_name))
-    result.write_string("(e) }; } })()\n")
+    result.write_string(gen_inline_classify_js(ctor.throws))
+    result.write_string(" }; } })()\n")
   } else {
     result.write_string(") => ")
     result.write_string(js_ctor_expr)
@@ -1616,7 +1616,7 @@ pub fn gen_constructor_with_arg_count(
   suffix : String,
   dict_map? : Array[(String, DictionaryDef)] = [],
 ) -> String {
-  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+  let (return_type, is_throwing, _) = compute_throws_context(
     ctor.throws,
     "constructor",
     interface_name,
@@ -1685,8 +1685,8 @@ pub fn gen_constructor_with_arg_count(
     result.write_string(") => (() => { try { return { $tag: 0, _0: ")
     result.write_string(js_ctor_expr)
     result.write_string(" }; } catch(e) { return { $tag: 1, _0: ")
-    result.write_string(get_classify_fn_name(error_enum_name))
-    result.write_string("(e) }; } })()\n")
+    result.write_string(gen_inline_classify_js(ctor.throws))
+    result.write_string(" }; } })()\n")
   } else {
     result.write_string(") => ")
     result.write_string(js_ctor_expr)
@@ -2068,8 +2068,13 @@ fn gen_upcast_methods(
 
 ///|
 /// Check if attribute is an EventHandler on* attribute
-fn is_event_handler_attr(attr : AttributeDef) -> Bool {
-  starts_with(attr.name, "on") && attr.idl_type is Named("EventHandler")
+fn is_any_event_handler_attr(attr : AttributeDef) -> Bool {
+  starts_with(attr.name, "on") &&
+  (
+    attr.idl_type is Named("EventHandler") ||
+    attr.idl_type is Named("OnErrorEventHandler") ||
+    attr.idl_type is Named("OnBeforeUnloadEventHandler")
+  )
 }
 
 ///|
@@ -2427,23 +2432,32 @@ pub fn gen_interface_binding(iface : InterfaceDef, ctx : GenContext) -> String {
           }
         }
       Attribute(attr) =>
-        if is_event_handler_attr(attr) {
-          // Typed event handler: setter + clear, no getter
+        if is_any_event_handler_attr(attr) {
+          // Event handler: setter + clear, no getter
           let setter_name = "set_" + to_snake_case(attr.name)
           if !generated_methods.contains(setter_name) {
             generated_methods.push(setter_name)
-            let event_type = lookup_event_type(
-              event_type_map,
-              iface.name,
-              attr.name,
-              interfaces,
-            )
             if is_deprecated(deprecated_set, iface.name, attr.name) {
               result.write_string(gen_deprecated_annotation(attr.name))
             }
-            result.write_string(
-              gen_event_handler_setter(iface.name, attr, event_type),
-            )
+            if attr.idl_type is Named("EventHandler") {
+              // Typed event handler: (EventType) -> Unit
+              let event_type = lookup_event_type(
+                event_type_map,
+                iface.name,
+                attr.name,
+                interfaces,
+              )
+              result.write_string(
+                gen_event_handler_setter(iface.name, attr, event_type),
+              )
+            } else {
+              // OnErrorEventHandler/OnBeforeUnloadEventHandler: normal setter
+              let setter = gen_attribute_setter(iface.name, attr, enum_map~)
+              if setter != "" {
+                result.write_string(setter)
+              }
+            }
             result.write_string("\n")
           }
           let clear_name = "clear_" + to_snake_case(attr.name)

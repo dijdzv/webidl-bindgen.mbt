@@ -413,7 +413,7 @@ pub fn gen_shared_types_with_externals(
   result.write_string(
     "pub extern \"js\" fn JsError::message(self : JsError) -> String =\n",
   )
-  result.write_string("  #| (self) => String(self)\n\n")
+  result.write_string("  #| (self) => self.message\n\n")
   result.write_string(
     "pub extern \"js\" fn JsError::name(self : JsError) -> String =\n",
   )

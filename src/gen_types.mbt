@@ -299,7 +299,8 @@ fn gen_field_value_expr(
 /// MoonBit JS backend Option representations:
 ///   - String?:    None=undefined, Some=value  → pass-through
 ///   - Bool?:      None=-1, Some=true/false    → -1 to undefined conversion
-///   - Int?/Double?: None=undefined, Some=value → pass-through (TODO: verify)
+///   - Int?:         None=undefined, Some=value  → pass-through
+///   - Double?:      None={$tag:0}, Some={$tag:1,_0:v} → tagged unwrap
 ///   - Enum?:      None=undefined, Some=index  → undefined check + array lookup
 ///   - Named?:     None={$tag:0}, Some={$tag:1,_0:v} → tagged unwrap
 fn gen_optional_field_value_expr(
@@ -318,7 +319,8 @@ fn gen_optional_field_value_expr(
         ")"
     _ => ()
   }
-  // String?, Int?, Double? use undefined/value representation → pass-through
+  // String?, Int? use undefined/value representation → pass-through
+  // (Double? is tagged, handled below)
   if is_primitive_option_type(idl_type) {
     return "self." + field_name
   }
@@ -1247,7 +1249,8 @@ fn gen_from_js_optional_field_expr(
     Primitive("boolean") => return "(" + v + " === undefined ? -1 : " + v + ")"
     _ => ()
   }
-  // String?, Int?, Double?: pass-through (undefined = None)
+  // String?, Int?: pass-through (undefined = None)
+  // (Double? is tagged, handled below)
   if is_primitive_option_type(idl_type) {
     return v
   }
@@ -1326,38 +1329,29 @@ pub fn gen_error_enum(enum_name : String, exceptions : Array[String]) -> String 
   // OtherError catch-all (always last)
   result.write_string("  OtherError(JsError)\n")
   result.write_string("}\n\n")
-  // Classify FFI function
-  let classify_name = get_classify_fn_name(enum_name)
-  result.write_string("extern \"js\" fn ")
-  result.write_string(classify_name)
-  result.write_string("(e : JsError) -> ")
-  result.write_string(enum_name)
-  result.write_string(" =\n")
-  result.write_string("  #| (e) => {\n")
-  result.write_string("  #|   const n = (e && e.name) || '';\n")
-  // Generate if-else chain for each exception (sorted for consistent $tag ordering)
-  sorted
-  .iter()
-  .fold(init=0, fn(tag, ex) {
-    result.write_string("  #|   if (n === '")
-    result.write_string(ex)
-    result.write_string("') return { $tag: ")
-    result.write_string(tag.to_string())
-    result.write_string(", _0: e };\n")
-    tag + 1
-  })
-  |> ignore
-  // OtherError is the last variant
-  result.write_string("  #|   return { $tag: ")
-  result.write_string(sorted.length().to_string())
-  result.write_string(", _0: e };\n")
-  result.write_string("  #| }\n\n")
   result.to_string()
 }
 
 ///|
-/// Get classify function name from error enum name.
-/// "SetAttributeError" -> "classify_set_attribute_error"
-pub fn get_classify_fn_name(enum_name : String) -> String {
-  "classify_" + to_snake_case(enum_name)
+/// Generate inline JS classify expression for catch blocks.
+/// Replaces the separate classify FFI function to avoid DCE issues.
+/// Returns an IIFE that reads `e` from enclosing scope and returns the
+/// correct tagged error variant.
+/// Example output: (() => { const n = (e && e.name) || ''; if (n === 'TypeError') return { $tag: 0, _0: e }; return { $tag: 1, _0: e }; })()
+pub fn gen_inline_classify_js(exceptions : Array[String]) -> String {
+  let sorted = exceptions.copy()
+  sorted.sort()
+  let result = StringBuilder::new()
+  result.write_string("(() => { const n = (e && e.name) || '';")
+  for i, ex in sorted {
+    result.write_string(" if (n === '")
+    result.write_string(ex)
+    result.write_string("') return { $tag: ")
+    result.write_string(i.to_string())
+    result.write_string(", _0: e };")
+  }
+  result.write_string(" return { $tag: ")
+  result.write_string(sorted.length().to_string())
+  result.write_string(", _0: e }; })()")
+  result.to_string()
 }

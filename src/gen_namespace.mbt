@@ -233,7 +233,7 @@ fn gen_namespace_operation_single(
 ) -> String {
   let op_snake = op.name |> to_snake_case |> escape_reserved
   let fn_name = ns_snake + "_" + op_snake + fn_suffix
-  let (return_type, is_throwing, error_enum_name) = compute_throws_context(
+  let (return_type, is_throwing, _) = compute_throws_context(
     op.throws,
     op.name,
     ns_name,
@@ -288,7 +288,7 @@ fn gen_namespace_operation_single(
     js_expr,
     op.return_type,
     is_throwing,
-    error_enum_name,
+    op.throws,
   )
   result.write_string(wrapped)
   result.write_string("\n")

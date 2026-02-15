@@ -188,7 +188,16 @@ pub fn escape_reserved(name : String) -> String {
 /// Check if an IdlType uses the primitive Option representation (undefined/value)
 /// vs the tagged representation ({ $tag: 0/1 })
 pub fn is_primitive_option_type(inner_type : IdlType) -> Bool {
-  inner_type is (String | Primitive(_))
+  match inner_type {
+    String => true
+    // Double? uses tagged representation ({$tag:0/1}), not pass-through
+    Primitive("float")
+    | Primitive("unrestricted float")
+    | Primitive("double")
+    | Primitive("unrestricted double") => false
+    Primitive(_) => true
+    _ => false
+  }
 }
 
 ///|
@@ -390,8 +399,9 @@ pub fn gen_throwing_return_type(
 pub fn wrap_throwing_js_expr(
   js_expr : String,
   return_type : IdlType,
-  classify_fn_name : String,
+  exceptions : Array[String],
 ) -> String {
+  let classify = gen_inline_classify_js(exceptions)
   let ok_value = match return_type {
     Void => "undefined"
     _ => wrap_return_expr(js_expr, return_type)
@@ -401,14 +411,14 @@ pub fn wrap_throwing_js_expr(
     "(() => { try { " +
     js_expr +
     "; return { $tag: 0, _0: undefined }; } catch(e) { return { $tag: 1, _0: " +
-    classify_fn_name +
-    "(e) }; } })()"
+    classify +
+    " }; } })()"
   } else {
     "(() => { try { return { $tag: 0, _0: " +
     ok_value +
     " }; } catch(e) { return { $tag: 1, _0: " +
-    classify_fn_name +
-    "(e) }; } })()"
+    classify +
+    " }; } })()"
   }
 }
 
@@ -419,21 +429,22 @@ pub fn wrap_throwing_js_expr(
 pub fn wrap_promise_throwing_js_expr(
   js_expr : String,
   inner_type : IdlType,
-  classify_fn_name : String,
+  exceptions : Array[String],
 ) -> String {
+  let classify = gen_inline_classify_js(exceptions)
   let ok_value = match inner_type {
-    Void => "{ $tag: 0, _0: undefined }"
+    Void => "({ $tag: 0, _0: undefined })"
     _ => {
       let inner_wrapped = wrap_return_expr("v", inner_type)
-      "{ $tag: 0, _0: " + inner_wrapped + " }"
+      "({ $tag: 0, _0: " + inner_wrapped + " })"
     }
   }
   js_expr +
   ".then(v => " +
   ok_value +
   ").catch(e => ({ $tag: 1, _0: " +
-  classify_fn_name +
-  "(e) }))"
+  classify +
+  " }))"
 }
 
 ///|
@@ -477,22 +488,12 @@ pub fn wrap_return_or_throwing(
   js_expr : String,
   return_type : IdlType,
   is_throwing : Bool,
-  error_enum_name : String,
+  throws : Array[String],
 ) -> String {
   if is_throwing {
     match return_type {
-      Promise(inner) =>
-        wrap_promise_throwing_js_expr(
-          js_expr,
-          inner,
-          get_classify_fn_name(error_enum_name),
-        )
-      _ =>
-        wrap_throwing_js_expr(
-          js_expr,
-          return_type,
-          get_classify_fn_name(error_enum_name),
-        )
+      Promise(inner) => wrap_promise_throwing_js_expr(js_expr, inner, throws)
+      _ => wrap_throwing_js_expr(js_expr, return_type, throws)
     }
   } else {
     wrap_return_expr(js_expr, return_type)
